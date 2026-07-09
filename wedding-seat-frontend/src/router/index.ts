@@ -5,29 +5,29 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/guest/home'
+      redirect: '/admin/dashboard' 
     },
-    // 来宾端
+    // 来宾端：动态路由，修正路径为标准的 @/views/...
     {
-      path: '/guest/home',
+      path: '/guest/event/:slug/home',
       name: 'GuestHome',
-      component: () => import('@/views/guest/Home.vue')
+      component: () => import('@/views/guest/Home.vue') 
     },
     {
-      path: '/guest/seat',
+      path: '/guest/event/:slug/seat',
       name: 'GuestSeatSelect',
-      component: () => import('@/views/guest/SeatSelect.vue')
+      component: () => import('@/views/guest/SeatSelect.vue') 
     },
     // 管理端
     {
       path: '/admin/dashboard',
       name: 'AdminDashboard',
-      component: () => import('@/views/admin/Dashboard.vue')
+      component: () => import('@/views/admin/Dashboard.vue') 
     },
     {
       path: '/admin/settings',
       name: 'AdminSettings',
-      component: () => import('@/views/admin/Settings.vue')
+      component: () => import('@/views/admin/Settings.vue') 
     }
   ]
 })

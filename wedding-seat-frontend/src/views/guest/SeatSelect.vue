@@ -64,7 +64,9 @@ import { useRoute } from 'vue-router'
 import { useGuestStore } from '@/stores/guest'
 import { showToast, showDialog } from 'vant'
 import { registerGuest, getTableSeats, lockSeat } from '@/api/guest'
+import { useRouter } from 'vue-router'
 
+const router = useRouter()
 const route = useRoute()
 const guestStore = useGuestStore()
 const slug = route.params.slug as string
@@ -140,25 +142,34 @@ const submitLockSeat = async () => {
   loading.value = true
   
   try {
-    // 每次提交前，其实可以顺手重新加载一下，但这里我们听从后端抛 409
     const res = await lockSeat({
       guestId: guestStore.guestId,
       seatId: chosenSeat.value.id,
-      version: chosenSeat.value.version // 传入当时拿到的乐观锁版本号
+      version: chosenSeat.value.version 
     })
 
     if (res.code === 200 && res.data === true) {
+      // ➔ 核心改动：从全局 store 中安全提取当时在首页拿到的婚礼基本信息
+      // （假设你已经在 store 存了，或者我们通过简单的格式化拼接提示）
+      const tableNo = guestStore.recommendedTable?.tableNo || ''
+      const seatNo = chosenSeat.value.seatNo
+      
       showDialog({
-        title: '恭喜您，选座成功！',
-        message: `您已成功锁定了 ${guestStore.recommendedTable.tableNo}号桌 的 ${chosenSeat.value.seatNo}号座位，期待与您相聚！`
+        title: '🎉 恭喜您，选座成功！',
+        message: `您已成功锁定【${tableNo}号桌 · ${seatNo}号座位】。\n\n我们在婚礼现场期待您的到来！`,
+        theme: 'round-button',
+        confirmButtonColor: '#ff4d4f'
+      }).then(() => {
+        // ➔ 核心改动：用户点击弹窗的“确定”按钮后，立刻优雅地退回到来宾端 H5 首页
+        router.push(`/guest/event/${slug}/home`)
       })
+
     } else if (res.code === 409) {
-      // 核心高并发对抗分支
+      // 高并发对抗：座位被抢
       showDialog({
         title: '手速慢了一步',
         message: '哎呀！这个席位刚好被别的客友捷足先登了，请重新选择空闲席位。'
       }).then(() => {
-        // 自动触发局部刷新：用推荐桌子的 id 重新拉取
         loadSeatsData(guestStore.recommendedTable.id)
       })
     } else {
@@ -170,6 +181,7 @@ const submitLockSeat = async () => {
     loading.value = false
   }
 }
+
 </script>
 
 <style scoped>

@@ -10,9 +10,9 @@ import java.util.List;
 
 public interface GuestService {
 
-    EventInfoVO getEventInfo(Long eventId);
+    EventInfoVO getEventInfo(String slug);
 
-    List<PhotoVO> getEventPhotos(Long eventId);
+    List<PhotoVO> getEventPhotos(String slug);
 
     GuestRegisterVO register(GuestRegisterDTO dto);
 

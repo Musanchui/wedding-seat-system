@@ -1,15 +1,14 @@
 package com.spruce.wedding.weddingseatbackend.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
 @Data
 public class GuestRegisterDTO {
 
-    @NotNull(message = "婚礼ID不能为空")
-    private Long eventId;
+    @NotBlank(message = "婚礼标识不能为空")
+    private String eventSlug;
 
     @NotBlank(message = "姓名不能为空")
     private String name;

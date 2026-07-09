@@ -4,15 +4,21 @@ import { ref } from 'vue'
 export const useGuestStore = defineStore('guest', () => {
   const guestId = ref<number | null>(null)
   const guestName = ref<string>('')
-  const currentEventId = ref<number | null>(null)
+  const currentSlug = ref<string>('')
   const recommendedTable = ref<any>(null)
 
-  const setGuestInfo = (id: number, name: string, eventId: number, recommend: any) => {
+  const setGuestInfo = (id: number, name: string, slug: string, recommend: any) => {
     guestId.value = id
     guestName.value = name
-    currentEventId.value = eventId
+    currentSlug.value = slug
     recommendedTable.value = recommend
   }
 
-  return { guestId, guestName, currentEventId, recommendedTable, setGuestInfo }
+  const clearGuestInfo = () => {
+    guestId.value = null
+    guestName.value = ''
+    recommendedTable.value = null
+  }
+
+  return { guestId, guestName, currentSlug, recommendedTable, setGuestInfo, clearGuestInfo }
 })

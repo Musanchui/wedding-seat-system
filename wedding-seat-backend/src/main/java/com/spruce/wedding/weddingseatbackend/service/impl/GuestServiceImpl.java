@@ -38,14 +38,8 @@ public class GuestServiceImpl implements GuestService {
     private final GuestMapper guestMapper;
 
     @Override
-    public EventInfoVO getEventInfo(Long eventId) {
-        WeddingEvent event = weddingEventMapper.selectById(eventId);
-        if (event == null) {
-            throw new BusinessException("婚礼不存在");
-        }
-        if (event.getStatus() == null || event.getStatus() != 1) {
-            throw new BusinessException("该婚礼尚未开放访问");
-        }
+    public EventInfoVO getEventInfo(String slug) {
+        WeddingEvent event = getPublishedEventBySlug(slug);
         EventInfoVO vo = new EventInfoVO();
         vo.setId(event.getId());
         vo.setGroomName(event.getGroomName());
@@ -57,11 +51,30 @@ public class GuestServiceImpl implements GuestService {
         return vo;
     }
 
+    /**
+     * 根据slug查询婚礼，并校验必须是"已发布"状态才允许来宾端访问。
+     * 所有来宾端接口的入口都要经过这一步，内部再用查出来的数字id去关联查询photo/table/guest等表，
+     * 数字id不会暴露在URL里，只有slug会暴露给来宾。
+     */
+    private WeddingEvent getPublishedEventBySlug(String slug) {
+        WeddingEvent event = weddingEventMapper.selectOne(
+                Wrappers.<WeddingEvent>lambdaQuery().eq(WeddingEvent::getSlug, slug)
+        );
+        if (event == null) {
+            throw new BusinessException("婚礼不存在，请检查链接是否正确");
+        }
+        if (event.getStatus() == null || event.getStatus() != 1) {
+            throw new BusinessException("该婚礼尚未开放访问");
+        }
+        return event;
+    }
+
     @Override
-    public List<PhotoVO> getEventPhotos(Long eventId) {
+    public List<PhotoVO> getEventPhotos(String slug) {
+        WeddingEvent event = getPublishedEventBySlug(slug);
         List<Photo> photos = photoMapper.selectList(
                 Wrappers.<Photo>lambdaQuery()
-                        .eq(Photo::getEventId, eventId)
+                        .eq(Photo::getEventId, event.getId())
                         .orderByAsc(Photo::getSortOrder)
         );
         return photos.stream()
@@ -72,10 +85,13 @@ public class GuestServiceImpl implements GuestService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public GuestRegisterVO register(GuestRegisterDTO dto) {
+        WeddingEvent event = getPublishedEventBySlug(dto.getEventSlug());
+        Long eventId = event.getId();
+
         // 1. 先查该手机号在这场婚礼里是否已经登记过，避免重复登记
         Guest existing = guestMapper.selectOne(
                 Wrappers.<Guest>lambdaQuery()
-                        .eq(Guest::getEventId, dto.getEventId())
+                        .eq(Guest::getEventId, eventId)
                         .eq(Guest::getPhone, dto.getPhone())
         );
 
@@ -95,19 +111,19 @@ public class GuestServiceImpl implements GuestService {
                 }
             }
             // 之前登记过但还没选座，走推荐逻辑，guestId复用已有的，不新建记录
-            RecommendTableVO recommend = recommendTable(dto.getEventId(), existing.getCategory());
+            RecommendTableVO recommend = recommendTable(eventId, existing.getCategory());
             return new GuestRegisterVO(existing.getId(), recommend);
         }
 
         // 2. 新来宾：插入登记记录（此时先不占座，只是登记信息+推荐一个桌，具体选座是另一个接口）
         Guest guest = new Guest();
-        guest.setEventId(dto.getEventId());
+        guest.setEventId(eventId);
         guest.setName(dto.getName());
         guest.setPhone(dto.getPhone());
         guest.setCategory(dto.getCategory());
         guestMapper.insert(guest);
 
-        RecommendTableVO recommend = recommendTable(dto.getEventId(), dto.getCategory());
+        RecommendTableVO recommend = recommendTable(eventId, dto.getCategory());
         return new GuestRegisterVO(guest.getId(), recommend);
     }
 

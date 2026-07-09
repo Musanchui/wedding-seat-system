@@ -31,21 +31,23 @@ public class GuestController {
     private final GuestService guestService;
 
     /**
-     * GET /api/guest/event/{eventId}
-     * H5欢迎页初始化加载：新人姓名、时间、地点、寄语、音乐URL
+     * GET /api/guest/event/{slug}
+     * H5欢迎页初始化加载：新人姓名、时间、地点、寄语、音乐URL。
+     * slug是婚礼创建时生成的短标识（如 zhang-li-0815），来宾扫码/点链接进来的url用的是这个，
+     * 不暴露数据库自增主键，防止有人靠猜数字ID看到别人的婚礼。
      */
-    @GetMapping("/event/{eventId}")
-    public Result<EventInfoVO> getEventInfo(@PathVariable Long eventId) {
-        return Result.success(guestService.getEventInfo(eventId));
+    @GetMapping("/event/{slug}")
+    public Result<EventInfoVO> getEventInfo(@PathVariable String slug) {
+        return Result.success(guestService.getEventInfo(slug));
     }
 
     /**
-     * GET /api/guest/event/{eventId}/photos
+     * GET /api/guest/event/{slug}/photos
      * 滚动照片墙，按sort_order升序
      */
-    @GetMapping("/event/{eventId}/photos")
-    public Result<List<PhotoVO>> getEventPhotos(@PathVariable Long eventId) {
-        return Result.success(guestService.getEventPhotos(eventId));
+    @GetMapping("/event/{slug}/photos")
+    public Result<List<PhotoVO>> getEventPhotos(@PathVariable String slug) {
+        return Result.success(guestService.getEventPhotos(slug));
     }
 
     /**

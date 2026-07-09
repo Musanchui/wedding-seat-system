@@ -1,0 +1,90 @@
+server:
+  port: 8080
+  # 前后端分离，接口统一加个前缀，避免和静态资源路径冲突
+  servlet:
+    context-path: /api
+
+spring:
+  application:
+    name: wedding-seat-backend
+
+  # ------------------ 数据源配置（Druid） ------------------
+  # 下面这些 ${XXX:默认值} 写法是"环境变量优先，没设置就用冒号后面的默认值"
+  # 本地开发不用设环境变量，会自动用默认值；部署到Docker时，docker-compose.yml里传入的环境变量会覆盖这里的默认值
+  datasource:
+    type: com.alibaba.druid.pool.DruidDataSource
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3307}/${DB_NAME:wedding_seat}?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:你的本地数据库密码}
+
+    druid:
+      # 连接池大小：一次性小型活动项目，不需要很大
+      initial-size: 5
+      min-idle: 5
+      max-active: 20
+      max-wait: 60000
+      # 检测连接是否有效
+      validation-query: SELECT 1
+      test-while-idle: true
+      test-on-borrow: false
+      test-on-return: false
+      # 防火墙：拦截 SQL 注入等危险操作
+      filter:
+        wall:
+          enabled: true
+          config:
+            drop-table-allow: false
+            update-where-none-check: true
+      # 内置监控台，访问 http://ip:8080/api/druid/ 可查看SQL执行、连接池状态
+      stat-view-servlet:
+        enabled: true
+        url-pattern: /druid/*
+        login-username: ${DRUID_USERNAME:admin}
+        login-password: ${DRUID_PASSWORD:你自己设置一个监控台密码}
+        # 只允许自己IP访问监控台，部署到服务器后建议改成你自己的IP，本地开发先留空
+        allow: ""
+      web-stat-filter:
+        enabled: true
+        url-pattern: /*
+        exclusions: "*.js,*.gif,*.jpg,*.png,*.css,*.ico,/druid/*"
+
+  # ------------------ 文件上传配置（照片、音乐） ------------------
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+# ------------------ MyBatis-Plus 配置 ------------------
+mybatis-plus:
+  # 实体类所在包，方便XML中用别名而不用写全类名
+  type-aliases-package: com.spruce.wedding.weddingseatbackend.entity
+  # XML映射文件位置（复杂查询时用，简单CRUD不需要写XML）
+  mapper-locations: classpath*:mapper/*.xml
+  configuration:
+    # 数据库字段命名 seat_no 自动映射为 Java 的 seatNo，MyBatis-Plus默认已开启，这里显式声明
+    map-underscore-to-camel-case: true
+    # 开发阶段打印SQL日志，方便调试；上线前可以去掉或改成只打印到文件
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      # 主键策略：用数据库自增即可，一次性活动数据量小，不需要分布式ID
+      id-type: auto
+      # 逻辑删除字段（如果以后想给来宾/座位加"软删除"而不是物理删除，可以启用；先不加字段，占位说明）
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# ------------------ 自定义配置：图片/音乐存储路径 ------------------
+wedding:
+  upload:
+    # 本地开发默认存在项目同级目录下，Docker部署时会通过环境变量指向容器内挂载的路径（比如 /app/uploads）
+    # 注意：容器内的路径一定要挂载数据卷(volume)，否则容器重启/重建后上传的文件会丢失
+    base-path: ${UPLOAD_PATH:D:/wedding-uploads/}
+    # 对外访问的URL前缀，需要和 WebMvcConfigurer 里的静态资源映射对应
+    url-prefix: /uploads/
+
+logging:
+  level:
+    com.spruce.wedding.weddingseatbackend: debug
+    com.baomidou.mybatisplus: debug

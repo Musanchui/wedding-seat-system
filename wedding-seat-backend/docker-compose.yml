@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: wedding-seat-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root123456    # 本地开发密码，你可以改，改了要和 application.yml 里的 DB_PASSWORD 环境变量对应
+      MYSQL_DATABASE: wedding_seat        # 容器启动时自动创建这个库，不用再手动 CREATE DATABASE
+      TZ: Asia/Shanghai
+    ports:
+      - "3307:3306"                      # 本地3307端口映射到容器内部3306端口，避开本机可能被占用的3306
+    volumes:
+      - wedding-mysql-data:/var/lib/mysql                          # 数据持久化，容器删了数据还在
+      - ./sql:/docker-entrypoint-initdb.d                           # 把sql目录挂进去，容器首次启动会自动执行里面的 .sql 文件建表
+    command:
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_general_ci
+
+volumes:
+  wedding-mysql-data:

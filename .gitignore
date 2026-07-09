@@ -1,0 +1,54 @@
+# ============================================
+# Java / Maven / Spring Boot (后端)
+# ============================================
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+*.class
+*.jar
+*.war
+
+# IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# ============================================
+# Node / Vue / Vite (前端)
+# ============================================
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Vite缓存
+.vite/
+
+# 环境变量文件：本地开发配置不上传，避免密钥/密码泄露
+.env
+.env.local
+.env.*.local
+
+# 日志
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# VSCode
+.vscode/*
+!.vscode/extensions.json
+
+# ============================================
+# 通用
+# ============================================
+.DS_Store
+Thumbs.db
+*.log
+
+# 上传的照片/音乐等运行时产生的文件，不应该进仓库（应该只在服务器磁盘/数据卷里）
+/backend/uploads/
+/wedding-uploads/

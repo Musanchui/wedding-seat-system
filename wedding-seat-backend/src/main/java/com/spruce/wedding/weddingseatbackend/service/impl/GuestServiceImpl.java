@@ -8,15 +8,21 @@ import com.spruce.wedding.weddingseatbackend.dto.GuestRegisterVO;
 import com.spruce.wedding.weddingseatbackend.dto.PhotoVO;
 import com.spruce.wedding.weddingseatbackend.dto.RecommendTableVO;
 import com.spruce.wedding.weddingseatbackend.dto.SeatVO;
+import com.spruce.wedding.weddingseatbackend.dto.TableLayoutVO;
+import com.spruce.wedding.weddingseatbackend.dto.TableSummaryVO;
+import com.spruce.wedding.weddingseatbackend.dto.VenueElementVO;
+import com.spruce.wedding.weddingseatbackend.dto.VenueLayoutVO;
 import com.spruce.wedding.weddingseatbackend.entity.Guest;
 import com.spruce.wedding.weddingseatbackend.entity.Photo;
 import com.spruce.wedding.weddingseatbackend.entity.Seat;
 import com.spruce.wedding.weddingseatbackend.entity.TableInfo;
+import com.spruce.wedding.weddingseatbackend.entity.VenueElement;
 import com.spruce.wedding.weddingseatbackend.entity.WeddingEvent;
 import com.spruce.wedding.weddingseatbackend.mapper.GuestMapper;
 import com.spruce.wedding.weddingseatbackend.mapper.PhotoMapper;
 import com.spruce.wedding.weddingseatbackend.mapper.SeatMapper;
 import com.spruce.wedding.weddingseatbackend.mapper.TableInfoMapper;
+import com.spruce.wedding.weddingseatbackend.mapper.VenueElementMapper;
 import com.spruce.wedding.weddingseatbackend.mapper.WeddingEventMapper;
 import com.spruce.wedding.weddingseatbackend.service.GuestService;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +42,7 @@ public class GuestServiceImpl implements GuestService {
     private final TableInfoMapper tableInfoMapper;
     private final SeatMapper seatMapper;
     private final GuestMapper guestMapper;
+    private final VenueElementMapper venueElementMapper;
 
     @Override
     public EventInfoVO getEventInfo(String slug) {
@@ -80,6 +87,49 @@ public class GuestServiceImpl implements GuestService {
         return photos.stream()
                 .map(p -> new PhotoVO(p.getId(), p.getUrl(), p.getSortOrder()))
                 .toList();
+    }
+
+    @Override
+    public List<TableSummaryVO> getEventTables(String slug) {
+        WeddingEvent event = getPublishedEventBySlug(slug);
+        List<TableInfo> tables = tableInfoMapper.selectList(
+                Wrappers.<TableInfo>lambdaQuery()
+                        .eq(TableInfo::getEventId, event.getId())
+                        .eq(TableInfo::getStatus, 1)
+                        .orderByAsc(TableInfo::getTableNo)
+        );
+        return tables.stream()
+                .map(t -> new TableSummaryVO(t.getId(), t.getTableNo(), t.getRemark(),
+                        t.getSeatCount(), calcAvailableSeats(t)))
+                .toList();
+    }
+
+    @Override
+    public VenueLayoutVO getVenueLayout(String slug) {
+        WeddingEvent event = getPublishedEventBySlug(slug);
+
+        List<VenueElement> elements = venueElementMapper.selectList(
+                Wrappers.<VenueElement>lambdaQuery()
+                        .eq(VenueElement::getEventId, event.getId())
+                        .orderByAsc(VenueElement::getSortOrder)
+        );
+        List<VenueElementVO> elementVOs = elements.stream()
+                .map(e -> new VenueElementVO(e.getId(), e.getType(), e.getLabel(),
+                        e.getPosX(), e.getPosY(), e.getWidth(), e.getHeight(), e.getRotation()))
+                .toList();
+
+        List<TableInfo> tables = tableInfoMapper.selectList(
+                Wrappers.<TableInfo>lambdaQuery()
+                        .eq(TableInfo::getEventId, event.getId())
+                        .eq(TableInfo::getStatus, 1)
+        );
+        List<TableLayoutVO> tableVOs = tables.stream()
+                .map(t -> new TableLayoutVO(t.getId(), t.getTableNo(), t.getRemark(),
+                        t.getSeatCount(), calcAvailableSeats(t),
+                        t.getPosX(), t.getPosY(), t.getRotation()))
+                .toList();
+
+        return new VenueLayoutVO(event.getLayoutWidth(), event.getLayoutHeight(), elementVOs, tableVOs);
     }
 
     @Override

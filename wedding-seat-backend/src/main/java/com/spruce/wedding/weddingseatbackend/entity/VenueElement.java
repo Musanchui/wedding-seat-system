@@ -7,37 +7,36 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 
+/**
+ * 场地元素：舞台、屏幕、出入口等非桌子的场地标注
+ */
 @Data
-@TableName("table_info")
-public class TableInfo {
+@TableName("venue_element")
+public class VenueElement {
 
     @TableId(type = IdType.AUTO)
     private Long id;
 
     private Long eventId;
 
-    private String tableNo;
-
-    private Integer seatCount;
-
-    private String remark;
-
     /**
-     * 桌子在场地画布上的坐标，NULL表示管理员还没配置具体位置（前端可以先按网格兜底展示）
+     * stage=舞台，screen=屏幕，entrance=入口，exit=出口，other=其他自定义标注
      */
+    private String type;
+
+    private String label;
+
     private Integer posX;
 
     private Integer posY;
 
-    /**
-     * 旋转角度 0-359，方便贴合场地形状摆放
-     */
+    private Integer width;
+
+    private Integer height;
+
     private Integer rotation;
 
-    /**
-     * 1=启用，0=停用
-     */
-    private Integer status;
+    private Integer sortOrder;
 
     private LocalDateTime createdAt;
 

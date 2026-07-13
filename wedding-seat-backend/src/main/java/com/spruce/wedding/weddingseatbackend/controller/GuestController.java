@@ -7,6 +7,8 @@ import com.spruce.wedding.weddingseatbackend.dto.GuestRegisterVO;
 import com.spruce.wedding.weddingseatbackend.dto.PhotoVO;
 import com.spruce.wedding.weddingseatbackend.dto.SeatLockDTO;
 import com.spruce.wedding.weddingseatbackend.dto.SeatVO;
+import com.spruce.wedding.weddingseatbackend.dto.TableSummaryVO;
+import com.spruce.wedding.weddingseatbackend.dto.VenueLayoutVO;
 import com.spruce.wedding.weddingseatbackend.service.GuestService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -48,6 +50,26 @@ public class GuestController {
     @GetMapping("/event/{slug}/photos")
     public Result<List<PhotoVO>> getEventPhotos(@PathVariable String slug) {
         return Result.success(guestService.getEventPhotos(slug));
+    }
+
+    /**
+     * GET /api/guest/event/{slug}/tables
+     * 获取该婚礼所有桌位及各桌剩余座位数，供来宾自主浏览挑选任意一桌（不局限于登记时系统推荐的那一桌）
+     */
+    @GetMapping("/event/{slug}/tables")
+    public Result<List<TableSummaryVO>> getEventTables(@PathVariable String slug) {
+        return Result.success(guestService.getEventTables(slug));
+    }
+
+    /**
+     * GET /api/guest/event/{slug}/venue-layout
+     * 完整场地布局图：画布尺寸 + 舞台/屏幕/出入口等场地元素坐标 + 所有桌子坐标(带剩余座位数)。
+     * 前端用这个接口的数据在一个固定尺寸(canvasWidth x canvasHeight)的画布上，
+     * 按每个元素/桌子的posX/posY/width/height/rotation绝对定位渲染出真实场地平面图。
+     */
+    @GetMapping("/event/{slug}/venue-layout")
+    public Result<VenueLayoutVO> getVenueLayout(@PathVariable String slug) {
+        return Result.success(guestService.getVenueLayout(slug));
     }
 
     /**

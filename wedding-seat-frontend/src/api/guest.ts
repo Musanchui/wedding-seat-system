@@ -61,3 +61,37 @@ export interface LockSeatParam {
 export const lockSeat = (data: LockSeatParam): Promise<ApiResponse<boolean>> => {
   return http.post('/guest/seat/lock', data)
 }
+// 定义布局数据结构
+export interface VenueElement {
+  id: number
+  type: 'stage' | 'screen' | 'entrance' | 'exit' | string
+  label: string
+  posX: number
+  posY: number
+  width: number
+  height: number
+  rotation: number
+}
+
+export interface VenueTable {
+  id: number
+  tableNo: string
+  remark: string
+  seatCount: number
+  availableSeatsCount: number
+  posX: number
+  posY: number
+  rotation: number
+}
+
+export interface VenueLayoutData {
+  canvasWidth: number
+  canvasHeight: number
+  elements: VenueElement[]
+  tables: VenueTable[]
+}
+
+// 2.7 获取宴会厅全厅布局图
+export const getVenueLayout = (slug: string): Promise<ApiResponse<VenueLayoutData>> => {
+  return http.get(`/guest/event/${slug}/venue-layout`)
+}

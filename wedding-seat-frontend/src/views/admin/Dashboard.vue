@@ -1,165 +1,206 @@
 <template>
-  <div class="admin-layout-container">
-    <el-container style="min-height: 100vh;">
-      <el-aside width="200px" style="background-color: #304156;">
-        <div class="menu-logo">婚礼选座后台</div>
-        <el-menu active-text-color="#409EFF" background-color="#304156" class="el-menu-vertical" default-active="1" text-color="#fff">
-          <el-menu-item index="1" @click="$router.push('/admin/dashboard')">
-            <el-icon><Platform /></el-icon><span>桌位大盘看板</span>
-          </el-menu-item>
-          <el-menu-item index="2" @click="$router.push('/admin/settings')">
-            <el-icon><Setting /></el-icon><span>素材与婚礼配置</span>
-          </el-menu-item>
-        </el-menu>
-      </el-aside>
-      
-      <el-main class="main-body">
-        <div class="page-header">
-          <h2>宴会厅桌位动态实时看板</h2>
-          <el-button type="primary" icon="Plus" @click="handleOpenAddTable">添加新桌位</el-button>
+  <div class="admin-dashboard">
+    <!-- 头部横幅区 -->
+    <div class="dashboard-header">
+      <div class="header-welcome">
+        <h2>👋 欢迎回来，{{ adminStore.adminInfo.nickname || adminStore.adminInfo.username }}</h2>
+        <p>今天是 2026年，祝您今天调度顺畅，婚礼现场圆满顺利！</p>
+      </div>
+      <el-button type="primary" size="large" color="#ff4d4f" @click="openCreateDialog">
+        ➕ 创建新婚礼
+      </el-button>
+    </div>
+
+    <!-- 婚礼卡片列表网格 -->
+    <el-skeleton :loading="pageLoading" animated :count="3">
+      <template #template>
+        <div style="padding: 20px; display: flex; gap: 20px;">
+          <el-skeleton-item variant="rect" style="width: 300px; height: 180px;" v-for="i in 3" :key="i" />
         </div>
+      </template>
+      
+      <template #default>
+        <div v-if="eventList.length === 0" class="empty-state">
+          <el-empty description="暂无您创建的婚礼，赶快点击右上角创建一个吧！" />
+        </div>
+        
+        <div v-else class="event-grid">
+          <el-card v-for="event in eventList" :key="event.id" class="event-card" shadow="hover">
+            <div class="card-status-tag">
+              <el-tag :type="event.status === 1 ? 'success' : 'info'" effect="dark">
+                {{ event.status === 1 ? '已发布' : '筹备中' }}
+              </el-tag>
+            </div>
+            
+            <div class="card-body">
+              <h3 class="wedding-names">
+                {{ event.groomName || '🤵 新郎' }} 🤍 {{ event.brideName || '👰 新娘' }}
+              </h3>
+              <p class="wedding-slug">
+                <el-icon><Link /></el-icon> 访问标识: <code>{{ event.slug }}</code>
+              </p>
+              <p class="wedding-time">
+                <el-icon><Calendar /></el-icon> 婚礼时间: 
+                {{ event.eventTime ? formatTime(event.eventTime) : '尚未设置' }}
+              </p>
+            </div>
+            
+            <div class="card-actions">
+              <el-button size="small" type="primary" plain @click="handleEditEvent(event.id)">
+                编辑详情
+              </el-button>
+              <el-button size="small" type="success" plain @click="handleManageSeats(event.slug)">
+                桌位大地图
+              </el-button>
+              <!-- 快捷发布/下架按钮 -->
+              <el-button 
+                size="small" 
+                :type="event.status === 1 ? 'warning' : 'danger'" 
+                :loading="statusLoading === event.id"
+                @click="toggleEventStatus(event)"
+              >
+                {{ event.status === 1 ? '下线' : '开放访问' }}
+              </el-button>
+            </div>
+          </el-card>
+        </div>
+      </template>
+    </el-skeleton>
 
-        <el-alert title="数据实时汇总：总桌数 3 桌 | 总席位 30 席 | 已入座 12 席 | 空余 18 席" type="success" :closable="false" style="margin-bottom: 20px;" />
-
-        <el-row :gutter="20">
-          <el-col :xs="24" :sm="12" :md="8" :lg="6" v-for="table in tableLayoutList" :key="table.id" style="margin-bottom: 20px;">
-            <el-card class="table-card" shadow="hover">
-              <template #header>
-                <div class="card-title-bar">
-                  <span class="t-name">{{ table.tableNo }} <el-tag size="small" type="info">{{ table.remark }}</el-tag></span>
-                  <el-button size="small" type="primary" link icon="Edit" @click="handleEditTable(table)">调整</el-button>
-                </div>
-              </template>
-              
-              <div class="badge-grid">
-                <el-tooltip
-                  v-for="seat in table.seats"
-                  :key="seat.seatNo"
-                  class="box-item"
-                  effect="dark"
-                  :content="seat.status === 1 ? `来宾: ${seat.guestName} (${seat.guestPhone})` : '空闲无人'"
-                  placement="top"
-                >
-                  <div :class="['seat-dot', seat.status === 1 ? 'is-busy' : 'is-empty']">
-                    {{ seat.seatNo }}
-                  </div>
-                </el-tooltip>
-              </div>
-              
-              <div class="card-footer-info">
-                <span>容纳数: {{ table.seatCount }}人</span>
-                <span class="fill-rate">已锁定: {{ table.seats.filter(s => s.status === 1).length }} 人</span>
-              </div>
-            </el-card>
-          </el-col>
-        </el-row>
-      </el-main>
-    </el-container>
-
-    <el-dialog v-model="dialogVisible" :title="formTitle" width="400px">
-      <el-form :model="tableForm" label-width="90px">
-        <el-form-item label="桌号/名称">
-          <el-input v-model="tableForm.tableNo" placeholder="如：主桌 或 05号桌" />
+    <!-- 弹窗：快捷创建新婚礼 -->
+    <el-dialog v-model="createVisible" title="🤵 创建新婚礼实例 👰" width="500px" destroy-on-close>
+      <el-form :model="createForm" label-position="top">
+        <el-form-item label="新郎姓名 (选填)">
+          <el-input v-model="createForm.groomName" placeholder="例如：张三" />
         </el-form-item>
-        <el-form-item label="计划座位数">
-          <el-input-number v-model="tableForm.seatCount" :min="1" :max="20" />
+        <el-form-item label="新娘姓名 (选填)">
+          <el-input v-model="createForm.brideName" placeholder="例如：李四" />
         </el-form-item>
-        <el-form-item label="亲友备注">
-          <el-input v-model="tableForm.remark" placeholder="如：新郎初中同学" />
+        <el-form-item label="访问标识 slug (选填)">
+          <el-input v-model="createForm.slug" placeholder="例：zhang-li-0815，不填系统将随机生成" />
+          <div class="form-tip">只能包含小写字母、数字和短横线，且全站唯一。</div>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveTableConfig">保存提交</el-button>
+        <el-button @click="createVisible = false">取消</el-button>
+        <el-button type="primary" color="#ff4d4f" :loading="submitLoading" @click="submitCreateEvent">确认创建</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, reactive } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAdminStore } from '@/stores/admin'
+import { getMyEventList, createEvent, updateEvent, type EventListItem } from '@/api/adminEvent'
 import { ElMessage } from 'element-plus'
+import { Calendar, Link } from '@element-plus/icons-vue'
 
-const dialogVisible = ref(false)
-const formTitle = ref('新增桌位')
-const tableForm = ref({ id: null, tableNo: '', seatCount: 10, remark: '' })
+const router = useRouter()
+const adminStore = useAdminStore()
 
-// 模拟从后端 /api/admin/tables/layout 拉取的完整树状结构
-const tableLayoutList = ref([
-  {
-    id: 1,
-    tableNo: '主桌',
-    seatCount: 10,
-    remark: '新郎新娘至亲',
-    seats: [
-      { seatNo: 1, status: 1, guestName: '张三爸爸', guestPhone: '138****0001' },
-      { seatNo: 2, status: 1, guestName: '李四妈妈', guestPhone: '138****0002' },
-      { seatNo: 3, status: 0, guestName: '', guestPhone: '' },
-      { seatNo: 4, status: 0, guestName: '', guestPhone: '' },
-      { seatNo: 5, status: 0, guestName: '', guestPhone: '' },
-      { seatNo: 6, status: 0, guestName: '', guestPhone: '' },
-      { seatNo: 7, status: 0, guestName: '', guestPhone: '' },
-      { seatNo: 8, status: 0, guestName: '', guestPhone: '' },
-      { seatNo: 9, status: 0, guestName: '', guestPhone: '' },
-      { seatNo: 10, status: 0, guestName: '', guestPhone: '' }
-    ]
-  },
-  {
-    id: 2,
-    tableNo: '02号桌',
-    seatCount: 10,
-    remark: '新郎大学同学',
-    seats: Array.from({ length: 10 }, (_, i) => ({
-      seatNo: i + 1,
-      status: i < 6 ? 1 : 0, // 模拟前6个人坐满了
-      guestName: '客友' + (i + 1),
-      guestPhone: '139****8888'
-    }))
-  },
-  {
-    id: 3,
-    tableNo: '03号桌',
-    seatCount: 10,
-    remark: '新娘公司同事',
-    seats: Array.from({ length: 10 }, (_, i) => ({
-      seatNo: i + 1,
-      status: i < 4 ? 1 : 0,
-      guestName: '同事' + (i + 1),
-      guestPhone: '135****6666'
-    }))
+const pageLoading = ref(false)
+const submitLoading = ref(false)
+const createVisible = ref(false)
+const statusLoading = ref<number | null>(null)
+const eventList = ref<EventListItem[]>([])
+
+const createForm = reactive({
+  groomName: '',
+  brideName: '',
+  slug: ''
+})
+
+// 加载列表数据
+const loadEventList = async () => {
+  pageLoading.value = true
+  try {
+    const res = await getMyEventList()
+    eventList.value = res.data
+  } catch (err) {
+    console.error('获取列表失败')
+  } finally {
+    pageLoading.value = false
   }
-])
-
-const handleOpenAddTable = () => {
-  formTitle.value = '新增桌位配置'
-  tableForm.value = { id: null, tableNo: '', seatCount: 10, remark: '' }
-  dialogVisible.value = true
 }
 
-const handleEditTable = (row: any) => {
-  formTitle.value = '修改桌位配置'
-  tableForm.value = { ...row }
-  dialogVisible.value = true
+onMounted(() => {
+  loadEventList()
+})
+
+const openCreateDialog = () => {
+  createForm.groomName = ''
+  createForm.brideName = ''
+  createForm.slug = ''
+  createVisible.value = true
 }
 
-const saveTableConfig = () => {
-  // 发送 POST 请求到 /api/admin/table/save
-  ElMessage({ type: 'success', message: '桌位数据更新成功！' })
-  dialogVisible.value = false
+// 提交快捷创建
+const submitCreateEvent = async () => {
+  submitLoading.value = true
+  try {
+    const res = await createEvent({
+      groomName: createForm.groomName || undefined,
+      brideName: createForm.brideName || undefined,
+      slug: createForm.slug.trim() || undefined
+    })
+    
+    ElMessage.success('🎉 婚礼实例快捷创建成功！')
+    createVisible.value = false
+    
+    // 直接进入该婚礼的精细化配置详情页
+    router.push(`/admin/event/edit/${res.data.id}`)
+  } catch (err) {
+    // 拦截器自动弹出 slug 重复等报错
+  } finally {
+    submitLoading.value = false
+  }
+}
+
+// 快捷切换婚礼的开放状态
+const toggleEventStatus = async (event: EventListItem) => {
+  statusLoading.value = event.id
+  const targetStatus = event.status === 1 ? 0 : 1
+  try {
+    await updateEvent(event.id, { status: targetStatus })
+    event.status = targetStatus
+    ElMessage.success(targetStatus === 1 ? '🎉 婚礼已正式发布，来宾端可以访问！' : '🔒 婚礼已下线转为筹备状态')
+  } catch (err) {
+    // 拦截器自动处理
+  } finally {
+    statusLoading.value = null
+  }
+}
+
+const handleEditEvent = (id: number) => {
+  router.push(`/admin/event/edit/${id}`)
+}
+
+const handleManageSeats = (slug: string) => {
+  router.push(`/admin/event/seats/${slug}`)
+}
+
+const formatTime = (timeStr: string) => {
+  return timeStr.replace('T', ' ')
 }
 </script>
 
 <style scoped>
-.menu-logo { height: 60px; line-height: 60px; text-align: center; color: white; font-weight: bold; font-size: 16px; background: #2b2f3a; }
-.main-body { background: #f0f2f5; padding: 20px; }
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.page-header h2 { margin: 0; font-size: 20px; color: #333; }
-.card-title-bar { display: flex; justify-content: space-between; align-items: center; }
-.t-name { font-weight: bold; font-size: 15px; }
-.badge-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 16px; }
-.seat-dot { height: 32px; line-height: 32px; text-align: center; border-radius: 4px; font-size: 12px; font-weight: bold; color: white; cursor: pointer; }
-.seat-dot.is-empty { background-color: #67c23a; }
-.seat-dot.is-busy { background-color: #f56c6c; }
-.card-footer-info { display: flex; justify-content: space-between; font-size: 12px; color: #999; border-top: 1px solid #f0f0f0; padding-top: 10px; }
-.fill-rate { color: #f56c6c; font-weight: bold; }
+.admin-dashboard { padding: 24px; max-width: 1200px; margin: 0 auto; }
+.dashboard-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; border-bottom: 1px solid #e8e8e8; padding-bottom: 20px; }
+.header-welcome h2 { margin: 0 0 8px 0; color: #1f1f1f; }
+.header-welcome p { margin: 0; color: #8c8c8c; font-size: 14px; }
+
+.event-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 24px; }
+.event-card { border-radius: 12px; position: relative; overflow: visible; }
+.card-status-tag { position: absolute; top: -10px; right: 16px; z-index: 10; }
+
+.wedding-names { font-size: 18px; color: #1a1a1a; margin: 8px 0 16px 0; }
+.card-body p { font-size: 13px; color: #666; display: flex; align-items: center; gap: 6px; margin: 8px 0; }
+.card-body code { background: #f5f5f5; padding: 2px 6px; border-radius: 4px; font-family: monospace; color: #ff4d4f; font-weight: bold; }
+
+.card-actions { border-top: 1px solid #f0f0f0; margin-top: 20px; padding-top: 16px; display: flex; justify-content: space-between; }
+.form-tip { font-size: 12px; color: #999; margin-top: 4px; }
+.empty-state { padding: 60px 0; }
 </style>

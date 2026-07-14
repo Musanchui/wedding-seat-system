@@ -6,6 +6,8 @@ import com.spruce.wedding.weddingseatbackend.dto.GuestRegisterDTO;
 import com.spruce.wedding.weddingseatbackend.dto.GuestRegisterVO;
 import com.spruce.wedding.weddingseatbackend.dto.PhotoVO;
 import com.spruce.wedding.weddingseatbackend.dto.SeatLockDTO;
+import com.spruce.wedding.weddingseatbackend.dto.SeatReleaseDTO;
+import com.spruce.wedding.weddingseatbackend.dto.SeatSummaryVO;
 import com.spruce.wedding.weddingseatbackend.dto.SeatVO;
 import com.spruce.wedding.weddingseatbackend.dto.TableSummaryVO;
 import com.spruce.wedding.weddingseatbackend.dto.VenueLayoutVO;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -92,12 +95,32 @@ public class GuestController {
 
     /**
      * POST /api/guest/seat/lock
-     * 抢座核心接口。乐观锁冲突时会抛SeatConflictException，
-     * 由GlobalExceptionHandler统一转换成 code=409 的Result返回，前端据此触发局部刷新重选。
+     * 抢座核心接口。一个来宾最多可以锁定3个座位，超过会返回普通业务错误(code=400)。
+     * 乐观锁冲突时会抛SeatConflictException，由GlobalExceptionHandler统一转换成 code=409 的Result返回，
+     * 前端据此触发局部刷新重选。
      */
     @PostMapping("/seat/lock")
     public Result<Boolean> lockSeat(@Valid @RequestBody SeatLockDTO dto) {
         guestService.lockSeat(dto.getGuestId(), dto.getSeatId(), dto.getVersion());
         return Result.success(true);
+    }
+
+    /**
+     * POST /api/guest/seat/release
+     * 取消(释放)已选的某一个座位。会校验这个座位确实是该来宾自己选的。
+     */
+    @PostMapping("/seat/release")
+    public Result<Boolean> releaseSeat(@Valid @RequestBody SeatReleaseDTO dto) {
+        guestService.releaseSeat(dto.getGuestId(), dto.getSeatId());
+        return Result.success(true);
+    }
+
+    /**
+     * GET /api/guest/my-seats?guestId=xxx
+     * 查询某个来宾当前已经选定的所有座位(0-3个)，前端可以用这个接口展示"我的选座"汇总页
+     */
+    @GetMapping("/my-seats")
+    public Result<List<SeatSummaryVO>> getMySeats(@RequestParam Long guestId) {
+        return Result.success(guestService.getMySeats(guestId));
     }
 }

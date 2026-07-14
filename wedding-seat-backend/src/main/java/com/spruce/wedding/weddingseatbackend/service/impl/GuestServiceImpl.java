@@ -7,6 +7,7 @@ import com.spruce.wedding.weddingseatbackend.dto.GuestRegisterDTO;
 import com.spruce.wedding.weddingseatbackend.dto.GuestRegisterVO;
 import com.spruce.wedding.weddingseatbackend.dto.PhotoVO;
 import com.spruce.wedding.weddingseatbackend.dto.RecommendTableVO;
+import com.spruce.wedding.weddingseatbackend.dto.SeatSummaryVO;
 import com.spruce.wedding.weddingseatbackend.dto.SeatVO;
 import com.spruce.wedding.weddingseatbackend.dto.TableLayoutVO;
 import com.spruce.wedding.weddingseatbackend.dto.TableSummaryVO;
@@ -146,23 +147,26 @@ public class GuestServiceImpl implements GuestService {
         );
 
         if (existing != null) {
-            // 已登记过：如果已经选了座位，直接把座位所在桌信息带回去；如果还没选座，重新走一次推荐逻辑
-            if (existing.getSeatId() != null) {
-                Seat seat = seatMapper.selectById(existing.getSeatId());
-                if (seat != null) {
-                    TableInfo table = tableInfoMapper.selectById(seat.getTableId());
-                    if (table != null) {
-                        RecommendTableVO tableVO = new RecommendTableVO(
-                                table.getId(), table.getTableNo(), table.getRemark(),
-                                calcAvailableSeats(table)
-                        );
-                        return new GuestRegisterVO(existing.getId(), tableVO);
-                    }
-                }
+            // 已登记过：查一下这个来宾名下已经选了哪些座位（可能0-3个）
+            List<Seat> existingSeats = seatMapper.selectList(
+                    Wrappers.<Seat>lambdaQuery().eq(Seat::getGuestId, existing.getId())
+            );
+
+            if (!existingSeats.isEmpty()) {
+                // 已经选过至少1个座位了，直接把这些座位信息带回去，不再重新推荐
+                List<SeatSummaryVO> seatSummaries = existingSeats.stream()
+                        .map(s -> {
+                            TableInfo table = tableInfoMapper.selectById(s.getTableId());
+                            return new SeatSummaryVO(s.getId(), s.getTableId(),
+                                    table != null ? table.getTableNo() : null, s.getSeatNo());
+                        })
+                        .toList();
+                return new GuestRegisterVO(existing.getId(), null, seatSummaries);
             }
-            // 之前登记过但还没选座，走推荐逻辑，guestId复用已有的，不新建记录
+
+            // 之前登记过但一个座位都还没选，走推荐逻辑，guestId复用已有的，不新建记录
             RecommendTableVO recommend = recommendTable(eventId, existing.getCategory());
-            return new GuestRegisterVO(existing.getId(), recommend);
+            return new GuestRegisterVO(existing.getId(), recommend, null);
         }
 
         // 2. 新来宾：插入登记记录（此时先不占座，只是登记信息+推荐一个桌，具体选座是另一个接口）
@@ -174,7 +178,7 @@ public class GuestServiceImpl implements GuestService {
         guestMapper.insert(guest);
 
         RecommendTableVO recommend = recommendTable(eventId, dto.getCategory());
-        return new GuestRegisterVO(guest.getId(), recommend);
+        return new GuestRegisterVO(guest.getId(), recommend, null);
     }
 
     /**
@@ -241,15 +245,22 @@ public class GuestServiceImpl implements GuestService {
     }
 
     /**
-     * 选座核心：并发安全的抢座逻辑。
+     * 每位来宾最多可以锁定的座位数
+     */
+    private static final int MAX_SEATS_PER_GUEST = 3;
+
+    /**
+     * 选座核心：并发安全的抢座逻辑，支持一个来宾最多占3个座位（比如带家人朋友一起坐）。
      *
      * 关键点：
      * 1. seatMapper.lockSeat() 是一条原子UPDATE，WHERE条件带上 id + version + status=0，
      *    数据库层面保证"同一时刻只有一个请求能更新成功"，不依赖Java层面的锁，天然支持多实例部署。
      * 2. 返回受影响行数=0，说明version不匹配（要么已被别人抢先，要么前端缓存的version过期），
      *    直接抛SeatConflictException，Controller捕获后返回409，前端据此触发局部刷新重新选座。
-     * 3. 如果该来宾之前已经选了别的座位（换座场景），先释放旧座位，再抢新座位，整个过程在一个事务里，
-     *    保证"要么换座完全成功，要么完全不变"，不会出现"旧座位释放了但新座位没抢到"的中间状态。
+     * 3. 每次锁座前先检查这个来宾当前已经占了几个座位，达到上限(3个)就拒绝，
+     *    前端应该提示"最多只能选3个座位，如需换一个，请先取消其中一个"。
+     * 4. 不再有"自动释放旧座位换新座位"的逻辑——现在是多选场景，选新座位不会影响已选的其他座位，
+     *    如果来宾想放弃某个座位，需要调用单独的 releaseSeat 接口。
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -257,6 +268,13 @@ public class GuestServiceImpl implements GuestService {
         Guest guest = guestMapper.selectById(guestId);
         if (guest == null) {
             throw new BusinessException("来宾信息不存在，请重新登记");
+        }
+
+        Long currentCount = seatMapper.selectCount(
+                Wrappers.<Seat>lambdaQuery().eq(Seat::getGuestId, guestId)
+        );
+        if (currentCount >= MAX_SEATS_PER_GUEST) {
+            throw new BusinessException("每位来宾最多只能选择" + MAX_SEATS_PER_GUEST + "个座位，如需更换，请先取消其中一个座位");
         }
 
         Seat targetSeat = seatMapper.selectById(seatId);
@@ -267,17 +285,39 @@ public class GuestServiceImpl implements GuestService {
             throw new BusinessException.SeatConflictException("该座位已被占用，请选择其他座位");
         }
 
-        // 换座场景：先释放该来宾原来占用的座位
-        if (guest.getSeatId() != null && !guest.getSeatId().equals(seatId)) {
-            seatMapper.releaseSeat(guest.getSeatId(), guestId);
-        }
-
         int affected = seatMapper.lockSeat(seatId, guestId, version);
         if (affected == 0) {
             throw new BusinessException.SeatConflictException("手速慢了一步，该座位刚被别人抢占，请重新选择");
         }
+    }
 
-        guest.setSeatId(seatId);
-        guestMapper.updateById(guest);
+    /**
+     * 释放(取消)已选的某一个座位。会校验这个座位确实是这个来宾自己占的，不能取消别人的座位。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void releaseSeat(Long guestId, Long seatId) {
+        Seat seat = seatMapper.selectById(seatId);
+        if (seat == null) {
+            throw new BusinessException("座位不存在");
+        }
+        if (seat.getGuestId() == null || !seat.getGuestId().equals(guestId)) {
+            throw new BusinessException("这不是您选定的座位，无法取消");
+        }
+        seatMapper.releaseSeat(seatId, guestId);
+    }
+
+    @Override
+    public List<SeatSummaryVO> getMySeats(Long guestId) {
+        List<Seat> seats = seatMapper.selectList(
+                Wrappers.<Seat>lambdaQuery().eq(Seat::getGuestId, guestId)
+        );
+        return seats.stream()
+                .map(s -> {
+                    TableInfo table = tableInfoMapper.selectById(s.getTableId());
+                    return new SeatSummaryVO(s.getId(), s.getTableId(),
+                            table != null ? table.getTableNo() : null, s.getSeatNo());
+                })
+                .toList();
     }
 }

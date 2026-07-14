@@ -1,36 +1,32 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-export const useAdminStore = defineStore('admin', () => {
-  const token = ref<string>(localStorage.getItem('admin_token') || '')
-  const adminInfo = ref<{
-    adminId: number | null
-    username: string
-    nickname: string
-  }>({
-    adminId: null,
-    username: '',
-    nickname: ''
-  })
+export const useAdminStore = defineStore(
+  'admin',
+  () => {
+    const token = ref<string>('')
+    const adminId = ref<number | null>(null)
+    const username = ref<string>('')
+    const nickname = ref<string>('')
 
-  // 登录成功，保存数据
-  const setLoginInfo = (loginToken: string, info: { adminId: number; username: string; nickname: string }) => {
-    token.value = loginToken
-    adminInfo.value = info
-    localStorage.setItem('admin_token', loginToken)
-  }
+    const setLoginInfo = (info: { token: string; adminId: number; username: string; nickname: string | null }) => {
+      token.value = info.token
+      adminId.value = info.adminId
+      username.value = info.username
+      nickname.value = info.nickname || info.username
+    }
 
-  // 登出或 401 被踢，清空数据
-  const clearLoginInfo = () => {
-    token.value = ''
-    adminInfo.value = { adminId: null, username: '', nickname: '' }
-    localStorage.removeItem('admin_token')
-  }
+    const logout = () => {
+      token.value = ''
+      adminId.value = null
+      username.value = ''
+      nickname.value = ''
+    }
 
-  return {
-    token,
-    adminInfo,
-    setLoginInfo,
-    clearLoginInfo
-  }
-})
+    return { token, adminId, username, nickname, setLoginInfo, logout }
+  },
+  {
+    // 需要装 pinia-plugin-persistedstate 插件；main.ts里要注册这个插件，登录状态刷新页面才不会丢
+    persist: true
+  } as any
+)

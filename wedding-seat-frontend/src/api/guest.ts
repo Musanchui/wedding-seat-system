@@ -1,67 +1,62 @@
-import axios from 'axios'
+import { guestHttp, type ApiResponse } from './http'
 
-// 1. 定义后端统一返回的 Result 接口结构
-export interface ApiResponse<T = any> {
-  code: number
-  message: string
-  data: T
+// ============================================
+// 类型定义
+// ============================================
+
+export interface EventInfo {
+  id: number
+  groomName: string | null
+  brideName: string | null
+  eventTime: string | null
+  location: string | null
+  greetingMessage: string | null
+  musicUrl: string | null
 }
 
-const http = axios.create({
-  baseURL: '/api',
-  timeout: 10000,
-  headers: {
-    'Content-Type': 'application/json'
-  }
-})
-
-http.interceptors.response.use(
-  (response) => {
-    // 这里强行返回经过拦截器剥离后的数据，并在下面用异步返回泛型对其进行约束
-    return response.data as any
-  },
-  (error) => {
-    return Promise.reject(error)
-  }
-)
-
-// 2. 改造导出函数，利用 Promise<ApiResponse<...>> 明确声明返回类型
-// 2.1 获取婚礼基础信息
-export const getWeddingEvent = (slug: string): Promise<ApiResponse> => {
-  return http.get(`/guest/event/${slug}`)
+export interface Photo {
+  id: number
+  url: string
+  sortOrder: number
 }
 
-// 2.2 获取滚动照片墙
-export const getWeddingPhotos = (slug: string): Promise<ApiResponse<any[]>> => {
-  return http.get(`/guest/event/${slug}/photos`)
+export interface TableSummary {
+  id: number
+  tableNo: string
+  remark: string | null
+  seatCount: number
+  availableSeatsCount: number
 }
 
-// 2.3 来宾登记
-export interface RegisterParam {
-  eventSlug: string
-  name: string
-  phone: string
-  category?: string
-}
-export const registerGuest = (data: RegisterParam): Promise<ApiResponse> => {
-  return http.post('/guest/register', data)
-}
-
-// 2.4 获取某一桌的座位状态
-export const getTableSeats = (tableId: number): Promise<ApiResponse<any[]>> => {
-  return http.get(`/guest/table/${tableId}/seats`)
-}
-
-// 2.5 锁定座位
-export interface LockSeatParam {
-  guestId: number
-  seatId: number
+export interface Seat {
+  id: number
+  seatNo: number
+  status: number // 0=空闲 1=已占用
   version: number
 }
-export const lockSeat = (data: LockSeatParam): Promise<ApiResponse<boolean>> => {
-  return http.post('/guest/seat/lock', data)
+
+export interface RecommendTable {
+  id: number
+  tableNo: string
+  remark: string | null
+  availableSeatsCount: number
 }
-// 定义布局数据结构
+
+export interface SeatSummary {
+  seatId: number
+  tableId: number
+  tableNo: string | null
+  seatNo: number
+}
+
+export interface GuestRegisterResult {
+  guestId: number
+  /** 新来宾/还没选座时有值，selectedSeats为null */
+  recommendedTable: RecommendTable | null
+  /** 已经选过至少1个座位时有值(1-3个)，recommendedTable为null */
+  selectedSeats: SeatSummary[] | null
+}
+
 export interface VenueElement {
   id: number
   type: 'stage' | 'screen' | 'entrance' | 'exit' | string
@@ -76,11 +71,11 @@ export interface VenueElement {
 export interface VenueTable {
   id: number
   tableNo: string
-  remark: string
+  remark: string | null
   seatCount: number
   availableSeatsCount: number
-  posX: number
-  posY: number
+  posX: number | null
+  posY: number | null
   rotation: number
 }
 
@@ -91,7 +86,51 @@ export interface VenueLayoutData {
   tables: VenueTable[]
 }
 
-// 2.7 获取宴会厅全厅布局图
-export const getVenueLayout = (slug: string): Promise<ApiResponse<VenueLayoutData>> => {
-  return http.get(`/guest/event/${slug}/venue-layout`)
+// ============================================
+// 接口
+// ============================================
+
+export const getWeddingEvent = (slug: string): Promise<ApiResponse<EventInfo>> =>
+  guestHttp.get(`/guest/event/${slug}`)
+
+export const getWeddingPhotos = (slug: string): Promise<ApiResponse<Photo[]>> =>
+  guestHttp.get(`/guest/event/${slug}/photos`)
+
+export const getEventTables = (slug: string): Promise<ApiResponse<TableSummary[]>> =>
+  guestHttp.get(`/guest/event/${slug}/tables`)
+
+export const getVenueLayout = (slug: string): Promise<ApiResponse<VenueLayoutData>> =>
+  guestHttp.get(`/guest/event/${slug}/venue-layout`)
+
+export interface RegisterParam {
+  eventSlug: string
+  name: string
+  phone: string
+  category?: string
 }
+export const registerGuest = (data: RegisterParam): Promise<ApiResponse<GuestRegisterResult>> =>
+  guestHttp.post('/guest/register', data)
+
+export const getTableSeats = (tableId: number): Promise<ApiResponse<Seat[]>> =>
+  guestHttp.get(`/guest/table/${tableId}/seats`)
+
+export interface LockSeatParam {
+  guestId: number
+  seatId: number
+  version: number
+}
+/** 选座：一个来宾最多可以选3个，超过会返回 code=400 的业务错误；乐观锁冲突返回 code=409 */
+export const lockSeat = (data: LockSeatParam): Promise<ApiResponse<boolean>> =>
+  guestHttp.post('/guest/seat/lock', data)
+
+export interface ReleaseSeatParam {
+  guestId: number
+  seatId: number
+}
+/** 取消(释放)已选的某个座位 */
+export const releaseSeat = (data: ReleaseSeatParam): Promise<ApiResponse<boolean>> =>
+  guestHttp.post('/guest/seat/release', data)
+
+/** 查询某个来宾当前已选定的所有座位(0-3个) */
+export const getMySeats = (guestId: number): Promise<ApiResponse<SeatSummary[]>> =>
+  guestHttp.get('/guest/my-seats', { params: { guestId } })

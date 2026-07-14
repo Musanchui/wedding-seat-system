@@ -22,7 +22,5 @@ public class Guest {
 
     private String category;
 
-    private Long seatId;
-
     private LocalDateTime registerTime;
 }

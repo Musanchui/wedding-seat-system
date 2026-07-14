@@ -1,24 +1,23 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-export const useGuestStore = defineStore('guest', () => {
-  const guestId = ref<number | null>(null)
-  const guestName = ref<string>('')
-  const currentSlug = ref<string>('')
-  const recommendedTable = ref<any>(null)
+/**
+ * 来宾端状态：保存当前登记的guestId，避免用户刷新页面/中途退出后要重新登记。
+ * 按eventSlug隔离存储，因为同一个手机可能扫过不同婚礼的码。
+ */
+export const useGuestStore = defineStore(
+  'guest',
+  () => {
+    // 用一个对象记录 { [eventSlug]: { guestId, guestName } }，支持同一设备参加多场婚礼
+    const registrations = ref<Record<string, { guestId: number; guestName: string }>>({})
 
-  const setGuestInfo = (id: number, name: string, slug: string, recommend: any) => {
-    guestId.value = id
-    guestName.value = name
-    currentSlug.value = slug
-    recommendedTable.value = recommend
-  }
+    const setGuestInfo = (eventSlug: string, guestId: number, guestName: string) => {
+      registrations.value[eventSlug] = { guestId, guestName }
+    }
 
-  const clearGuestInfo = () => {
-    guestId.value = null
-    guestName.value = ''
-    recommendedTable.value = null
-  }
+    const getGuestInfo = (eventSlug: string) => registrations.value[eventSlug] || null
 
-  return { guestId, guestName, currentSlug, recommendedTable, setGuestInfo, clearGuestInfo }
-})
+    return { registrations, setGuestInfo, getGuestInfo }
+  },
+  { persist: true } as any
+)

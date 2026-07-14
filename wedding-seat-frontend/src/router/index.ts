@@ -4,13 +4,9 @@ import { useAdminStore } from '@/stores/admin'
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
-    // ================== 1. 公共与重定向 ==================
-    {
-      path: '/',
-      redirect: '/admin/login'
-    },
+    { path: '/', redirect: '/admin/login' },
 
-    // ================== 2. 管理端 (PC) 路由 ==================
+    // ================== 管理端 (PC) ==================
     {
       path: '/admin/login',
       name: 'AdminLogin',
@@ -30,52 +26,47 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      // 数据库自增id，跟 handleEditEvent(event.id) 传的值一致
       path: '/admin/event/edit/:id',
       name: 'AdminEventEdit',
       component: () => import('@/views/admin/EventEdit.vue'),
       meta: { requiresAuth: true }
     },
     {
-      path: '/admin/event/seats/:slug',
+      // 桌位大地图管理接口用的是数据库id(eventId)，不是slug，这里统一用 :id，
+      // Dashboard.vue 跳转时要传 event.id（不是event.slug），下面Dashboard重写时会保持一致
+      path: '/admin/event/seats/:id',
       name: 'AdminSeatLayout',
-      component: () => import('@/views/admin/SeatLayout.vue'), 
+      component: () => import('@/views/admin/SeatLayout.vue'),
       meta: { requiresAuth: true }
     },
 
-    // ================== 3. 来宾端 (H5) 路由 (把缺的补回来！) ==================
-    {
-      // 来宾选座登记页面
-      path: '/guest/event/:slug/seat',
-      name: 'GuestSeatSelect',
-      component: () => import('@/views/guest/SeatSelect.vue'),
-      meta: { requiresAuth: false }
-    },
+    // ================== 来宾端 (H5) ==================
     {
       path: '/guest/event/:slug/home',
       name: 'GuestHome',
       component: () => import('@/views/guest/Home.vue'),
       meta: { requiresAuth: false }
+    },
+    {
+      path: '/guest/event/:slug/seat',
+      name: 'GuestSeatSelect',
+      component: () => import('@/views/guest/SeatSelect.vue'),
+      meta: { requiresAuth: false }
     }
   ]
 })
 
-// ================== 4. 全局路由守卫（采用最新的 Return 语法，干掉警告） ==================
-router.beforeEach((to, from) => {
+router.beforeEach((to) => {
   const adminStore = useAdminStore()
   const isAuthenticated = !!adminStore.token
 
-  // 场景 A：去管理后台，但没登录 -> 拦截去登录页
   if (to.meta.requiresAuth && !isAuthenticated) {
     return { name: 'AdminLogin' }
   }
-
-  // 场景 B：去登录/注册页，但已经登录过了 -> 弹飞去后台大盘
   if ((to.name === 'AdminLogin' || to.name === 'AdminRegister') && isAuthenticated) {
     return { name: 'AdminDashboard' }
   }
-
-  // 场景 C：其他情况（包括来宾端的 H5 页面），直接放行 (不写 return 默认就是放行)
 })
 
 export default router
-

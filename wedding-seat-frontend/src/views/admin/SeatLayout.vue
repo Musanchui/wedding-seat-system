@@ -1,316 +1,712 @@
 <template>
-  <div class="seat-layout-container">
-    <!-- 顶部状态导航栏 -->
-    <div class="layout-header">
-      <el-page-header title="返回控制台" @back="router.push('/admin/dashboard')">
-        <template #content>
-          <span class="header-title">🎨 宴会厅桌位上帝视角排布 —— 婚礼标识: <code>{{ slug }}</code></span>
-        </template>
-      </el-page-header>
-      <div class="header-actions">
-        <el-button type="success" :loading="saveLoading" @click="handleSaveLayout">
-          💾 保存排布地图
-        </el-button>
-      </div>
+  <div class="seat-layout-page">
+    <div class="page-header">
+      <el-button :icon="ArrowLeft" text @click="router.push('/admin/dashboard')">返回控制台</el-button>
+      <h2>桌位大地图</h2>
+      <div class="header-hint">拖动桌子/场地图标调整位置，松手自动保存</div>
     </div>
-
-    <!-- 主工作区 -->
-    <div class="workspace">
+    <div class="workspace" v-loading="pageLoading">
       <!-- 左侧工具栏 -->
       <div class="toolbar">
-        <h4>🛠️ 组件库</h4>
-        <el-button type="primary" plain class="tool-btn" @click="addTable('circle')">
-          ⭕ 添加标准圆桌
-        </el-button>
-        <el-button type="primary" plain class="tool-btn" @click="addTable('rect')">
-          方形主桌
-        </el-button>
-        <div class="canvas-tips">
-          <h5>💡 操作指南：</h5>
-          <ul>
-            <li>点击画布上的桌子可以进行选中。</li>
-            <li>按住鼠标左键可任意**拖拽**更换桌位。</li>
-            <li>别忘了点击右上角保存数据。</li>
-          </ul>
+        <div class="tool-section">
+          <div class="tool-title">桌位</div>
+          <el-button type="primary" :icon="Plus" @click="tableDialogVisible = true" style="width: 100%"> 新增桌位 </el-button>
+        </div>
+        <div class="tool-section">
+          <div class="tool-title">场地元素</div>
+          <el-button plain :icon="Plus" @click="quickAddElement('stage', '舞台', 300, 120)" style="width: 100%; margin-bottom: 8px">舞台</el-button>
+          <el-button plain :icon="Plus" @click="quickAddElement('screen', '投影幕布', 200, 30)" style="width: 100%; margin-bottom: 8px">投影幕布</el-button>
+          <el-button plain :icon="Plus" @click="quickAddElement('entrance', '入口', 120, 60)" style="width: 100%; margin-bottom: 8px">入口</el-button>
+          <el-button plain :icon="Plus" @click="quickAddElement('exit', '出口', 120, 60)" style="width: 100%">出口</el-button>
+        </div>
+        <div class="tool-section legend">
+          <div class="tool-title">图例</div>
+          <div class="legend-item"><span class="dot gold"></span>正常桌位</div>
+          <div class="legend-item"><span class="dot red"></span>已满座</div>
+          <div class="legend-item"><span class="dot blue"></span>当前选中</div>
         </div>
       </div>
 
-      <!-- 中间 Canvas 画布区 -->
-      <div class="canvas-area" ref="canvasContainer">
-        <canvas 
-          ref="seatCanvas"
-          @mousedown="onCanvasMouseDown"
-          @mousemove="onCanvasMouseMove"
-          @mouseup="onCanvasMouseUp"
-        ></canvas>
+      <!-- 中间画布区域 -->
+      <!-- 
+        核心修复：
+        1. .canvas-wrapper 使用 justify-content: center 让画布居中
+        2. .canvas-wrapper 使用 min-width: 0 防止 flex 溢出
+      -->
+      <div class="canvas-wrapper" ref="canvasWrapperRef">
+        <div class="canvas-container" :style="{ height: canvasHeightPx + 'px' }" ref="canvasContainerRef">
+          <div class="canvas-inner" @click.self="clearSelection">
+            <svg :viewBox="`0 0 ${layout.canvasWidth} ${layout.canvasHeight}`" class="venue-svg" preserveAspectRatio="none">
+              <g v-for="el in layout.elements" :key="'el-' + el.id" :transform="`translate(${el.posX}, ${el.posY}) rotate(${el.rotation})`">
+                <rect :width="el.width" :height="el.height" rx="8" :class="['svg-el', 'svg-el-' + el.type, { 'svg-el-selected': isSelected('element', el.id) }]" />
+                <text :x="el.width / 2" :y="el.height / 2 + 5" text-anchor="middle" class="svg-el-text">{{ el.label }}</text>
+              </g>
+              <g v-for="table in layout.tables" :key="'table-' + table.id" :transform="`translate(${table.posX || 0}, ${table.posY || 0})`">
+                <circle cx="0" cy="0" r="45" :class="['svg-table-circle', tableStatusClass(table), { 'svg-table-selected': isSelected('table', table.id) }]" />
+                <text x="0" y="-5" text-anchor="middle" class="svg-table-text">{{ table.tableNo }}号桌</text>
+                <text x="0" y="18" text-anchor="middle" class="svg-table-sub">{{ occupiedCount(table) }}/{{ table.seatCount }}</text>
+              </g>
+            </svg>
+            
+            <!-- HTML热区层 -->
+            <div class="hotspot-layer">
+              <div v-for="el in layout.elements" :key="'hotspot-el-' + el.id" 
+                   class="hotspot hotspot-rect" 
+                   :style="getRectStyle(el)" 
+                   @mousedown.stop="startDrag($event, 'element', el)" 
+                   @click.stop="selectItem('element', el.id)">
+              </div>
+              
+              <el-popover v-for="table in layout.tables" :key="'hotspot-table-' + table.id" 
+                          placement="top" width="220" trigger="hover" :show-after="150">
+                <template #reference>
+                  <div class="hotspot hotspot-circle" 
+                       :style="getCircleStyle(table)" 
+                       @mousedown.stop="startDrag($event, 'table', table)" 
+                       @click.stop="selectItem('table', table.id)">
+                  </div>
+                </template>
+                <div class="seat-tooltip">
+                  <div class="seat-tooltip-title">{{ table.tableNo }}号桌 · {{ table.remark || '无备注' }}</div>
+                  <div class="seat-tooltip-grid">
+                    <div v-for="seat in table.seats" :key="seat.id" 
+                         :class="['seat-chip', seat.status === 1 ? 'occupied' : 'free']" 
+                         :title="seat.guestName ? `${seat.guestName} · ${seat.guestPhone}` : '空位'">
+                      {{ seat.seatNo }} <span v-if="seat.guestName" class="seat-chip-name">{{ seat.guestName }}</span>
+                    </div>
+                  </div>
+                </div>
+              </el-popover>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <!-- 右侧属性编辑面板 -->
-      <div class="properties-panel">
-        <h4>📋 选中元素属性</h4>
-        <div v-if="selectedTable" class="props-form">
-          <el-form label-position="top">
-            <el-form-item label="桌位名称">
-              <el-input v-model="selectedTable.tableName" @input="draw" />
+      <!-- 右侧属性面板 -->
+      <div class="props-panel">
+        <template v-if="selectedType === 'table' && selectedTable">
+          <div class="panel-title">桌位属性</div>
+          <el-form label-position="top" size="default">
+            <el-form-item label="桌号">
+              <el-input v-model="selectedTable.tableNo" />
             </el-form-item>
-            <el-form-item label="容纳人数 (当前桌)">
-              <el-input-number v-model="selectedTable.seatCount" :min="1" :max="20" @change="draw" />
+            <el-form-item label="座位数">
+              <el-input-number v-model="selectedTable.seatCount" :min="1" :max="30" style="width: 100%" />
+              <div class="form-tip">缩小座位数时，如果被砍掉的座位已有人入座，保存会失败</div>
             </el-form-item>
-            <el-form-item label="坐标 X">
-              <el-input-number v-model="selectedTable.x" disabled />
+            <el-form-item label="备注（如：新郎大学同学）">
+              <el-input v-model="selectedTable.remark" type="textarea" :rows="2" />
             </el-form-item>
-            <el-form-item label="坐标 Y">
-              <el-input-number v-model="selectedTable.y" disabled />
-            </el-form-item>
-            <el-button type="danger" style="width: 100%; margin-top: 20px;" @click="deleteSelectedTable">
-              🗑️ 拆除该桌位
-            </el-button>
           </el-form>
-        </div>
-        <div v-else class="no-selected">
-          <el-empty description="在画布上点选一张桌子来编辑属性" :image-size="80" />
-        </div>
+          <div class="panel-actions">
+            <el-button type="primary" :loading="saving" style="width: 100%" @click="saveSelectedTable">保存修改</el-button>
+            <el-button type="danger" plain style="width: 100%; margin-top: 8px; margin-left: 0" @click="handleDeleteTable">删除该桌</el-button>
+          </div>
+        </template>
+        <template v-else-if="selectedType === 'element' && selectedElement">
+          <div class="panel-title">场地元素属性</div>
+          <el-form label-position="top" size="default">
+            <el-form-item label="标签文字">
+              <el-input v-model="selectedElement.label" />
+            </el-form-item>
+            <el-form-item label="宽度">
+              <el-input-number v-model="selectedElement.width" :min="20" :max="600" style="width: 100%" />
+            </el-form-item>
+            <el-form-item label="高度">
+              <el-input-number v-model="selectedElement.height" :min="20" :max="600" style="width: 100%" />
+            </el-form-item>
+          </el-form>
+          <div class="panel-actions">
+            <el-button type="primary" :loading="saving" style="width: 100%" @click="saveSelectedElement">保存修改</el-button>
+            <el-button type="danger" plain style="width: 100%; margin-top: 8px; margin-left: 0" @click="handleDeleteElement">删除该元素</el-button>
+          </div>
+        </template>
+        <el-empty v-else description="点击画布上的桌子或场地元素进行编辑" :image-size="70" />
       </div>
     </div>
+
+    <!-- 新增桌位弹窗 -->
+    <el-dialog v-model="tableDialogVisible" title="新增桌位" width="420px" destroy-on-close>
+      <el-form :model="newTableForm" label-position="top">
+        <el-form-item label="桌号" required>
+          <el-input v-model="newTableForm.tableNo" placeholder="例如：1、A1、主桌" />
+        </el-form-item>
+        <el-form-item label="座位数" required>
+          <el-input-number v-model="newTableForm.seatCount" :min="1" :max="30" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="newTableForm.remark" placeholder="例如：新郎大学同学" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="tableDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="submitNewTable">创建</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getSeatLayout, saveSeatLayout, type TableItem } from '@/api/adminSeat'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { ArrowLeft, Plus } from '@element-plus/icons-vue'
+import { getAdminVenueLayout, saveTable, deleteTable, saveVenueElement, deleteVenueElement, type AdminVenueLayout, type AdminTableLayout, type VenueElement } from '@/api/adminTable'
 
 const route = useRoute()
 const router = useRouter()
-const slug = ref(route.params.slug as string)
+const eventId = Number(route.params.id)
 
-// 画布尺寸相关
-const canvasWidth = ref(1000)
-const canvasHeight = ref(800)
+const pageLoading = ref(false)
+const saving = ref(false)
+const canvasWrapperRef = ref<HTMLElement | null>(null)
+const canvasContainerRef = ref<HTMLElement | null>(null)
 
-// 画布引用与交互状态
-const seatCanvas = ref<HTMLCanvasElement | null>(null)
-const canvasContainer = ref<HTMLDivElement | null>(null)
-const tables = ref<TableItem[]>([])
-const selectedTable = ref<TableItem | null | undefined>(null)
-const saveLoading = ref(false)
+// 动态高度，初始给一个较大的默认值，防止加载瞬间塌陷
+const canvasHeightPx = ref(600)
 
-// 拖拽变量跟踪
-let isDragging = false
-let dragOffsetX = 0
-let dragOffsetY = 0
-const TABLE_RADIUS = 40 // 桌子的绘制半径
+const layout = reactive<AdminVenueLayout>({
+  canvasWidth: 1000,
+  canvasHeight: 800,
+  elements: [],
+  tables: []
+})
 
-// 1. 初始化从后端加载数据
-const loadLayoutData = async () => {
+const selectedType = ref<'table' | 'element' | null>(null)
+const selectedId = ref<number | null>(null)
+const selectedTable = computed(() => layout.tables.find((t) => t.id === selectedId.value) || null)
+const selectedElement = computed(() => layout.elements.find((e) => e.id === selectedId.value) || null)
+
+const isSelected = (type: 'table' | 'element', id: number) => selectedType.value === type && selectedId.value === id
+const occupiedCount = (table: AdminTableLayout) => table.seats.filter((s) => s.status === 1).length
+
+const tableStatusClass = (table: AdminTableLayout) => {
+  if (isSelected('table', table.id)) return 'svg-table-selected'
+  return occupiedCount(table) >= table.seatCount ? 'svg-table-full' : 'svg-table-normal'
+}
+
+const selectItem = (type: 'table' | 'element', id: number) => {
+  selectedType.value = type
+  selectedId.value = id
+}
+
+const clearSelection = () => {
+  selectedType.value = null
+  selectedId.value = null
+}
+
+const loadLayout = async () => {
+  pageLoading.value = true
   try {
-    const res = await getSeatLayout(slug.value)
-    canvasWidth.value = res.data.layoutWidth || 1000
-    canvasHeight.value = res.data.layoutHeight || 800
-    tables.value = res.data.tables || []
-    initCanvas()
-  } catch (err) {
-    ElMessage.error('加载桌位地图失败')
+    const res = await getAdminVenueLayout(eventId)
+    Object.assign(layout, res.data)
+    // 数据加载后重新计算尺寸
+    await nextTick()
+    updateCanvasSize()
+  } catch (err: any) {
+    ElMessage.error(err?.message || '加载场地大地图失败')
+  } finally {
+    pageLoading.value = false
   }
 }
 
-// 2. 初始化 Canvas 画布基础配置
-const initCanvas = () => {
-  const canvas = seatCanvas.value
-  if (!canvas) return
-  canvas.width = canvasWidth.value
-  canvas.height = canvasHeight.value
-  draw()
+// ============================================
+// 核心修复：JS 强制计算画布尺寸
+// ============================================
+const updateCanvasSize = () => {
+  if (!canvasWrapperRef.value) return
+  
+  // 获取容器的实际渲染宽度
+  const wrapperWidth = canvasWrapperRef.value.clientWidth
+  // 减去左右 padding (24px * 2 = 48px)
+  const availableWidth = wrapperWidth - 48
+  
+  // 限制最大宽度为 1000px，如果容器不够宽则自适应
+  const targetWidth = Math.min(availableWidth, 1000)
+  
+  // 防御性检查：如果宽度为 0，则使用默认宽度 1000
+  const finalWidth = targetWidth > 0 ? targetWidth : 1000
+  
+  // 按照 1000:800 的比例计算高度
+  const targetHeight = finalWidth * 0.8
+  
+  canvasHeightPx.value = targetHeight
 }
 
-// 3. 核心绘制引擎 (Canvas Render)
-const draw = () => {
-  const canvas = seatCanvas.value
-  if (!canvas) return
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-
-  // 清空画布
-  ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-  // 绘制浪漫科技感的背景网格线
-  ctx.strokeStyle = '#f0f0f0'
-  ctx.lineWidth = 1
-  for (let i = 50; i < canvas.width; i += 50) {
-    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke()
-  }
-  for (let j = 50; j < canvas.height; j += 50) {
-    ctx.beginPath(); ctx.moveTo(0, j); ctx.lineTo(canvas.width, j); ctx.stroke()
-  }
-
-  // 循环渲染每一张桌子
-  tables.value.forEach((table) => {
-    const isSelected = selectedTable.value === table
-
-    // 绘制外圈座位小圆点（氛围感）
-    ctx.fillStyle = isSelected ? '#ff4d4f' : '#8c8c8c'
-    for (let k = 0; k < table.seatCount; k++) {
-      const angle = (Math.PI * 2 / table.seatCount) * k
-      const chairX = table.x + Math.cos(angle) * (TABLE_RADIUS + 12)
-      const chairY = table.y + Math.sin(angle) * (TABLE_RADIUS + 12)
-      ctx.beginPath()
-      ctx.arc(chairX, chairY, 5, 0, Math.PI * 2)
-      ctx.fill()
-    }
-
-    // 绘制主体桌身
-    ctx.beginPath()
-    ctx.arc(table.x, table.y, TABLE_RADIUS, 0, Math.PI * 2)
-    ctx.fillStyle = isSelected ? '#fff0f6' : '#ffffff'
-    ctx.fill()
-    ctx.strokeStyle = isSelected ? '#ff4d4f' : '#d9d9d9'
-    ctx.lineWidth = isSelected ? 4 : 2
-    ctx.stroke()
-
-    // 绘制桌子中心的名字标签
-    ctx.fillStyle = '#1f1f1f'
-    ctx.font = 'bold 13px sans-serif'
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    // 若名字过长进行截断
-    let name = table.tableName || '未命名'
-    if (name.length > 5) name = name.substring(0, 4) + '..'
-    ctx.fillText(name, table.x, table.y - 6)
-
-    // 绘制人数标签
-    ctx.fillStyle = '#8c8c8c'
-    ctx.font = '11px sans-serif'
-    ctx.fillText(`${table.seatCount}人`, table.x, table.y + 12)
+// 监听窗口大小变化
+const handleResize = () => {
+  // 使用 requestAnimationFrame 确保在浏览器重绘后计算，避免获取到 0
+  requestAnimationFrame(() => {
+    updateCanvasSize()
   })
 }
 
-// 4. 新增一张桌子入场
-const addTable = (type: 'circle' | 'rect') => {
-  const newTable: TableItem = {
-    tableName: `新桌位-${tables.value.length + 1}`,
-    seatCount: 10,
-    x: 150,
-    y: 150
+// ============================================
+// 样式计算：基于百分比，确保热区与SVG图形完全重合
+// ============================================
+const getCircleStyle = (table: AdminTableLayout) => {
+  const left = ((table.posX || 0) / layout.canvasWidth) * 100
+  const top = ((table.posY || 0) / layout.canvasHeight) * 100
+  // 直径是90px (r=45)，需要换算成百分比宽度
+  const sizePercent = (90 / layout.canvasWidth) * 100
+  return {
+    left: `${left}%`,
+    top: `${top}%`,
+    width: `${sizePercent}%`,
+    height: `${sizePercent}%`, // 保持圆形
+    transform: 'translate(-50%, -50%)'
   }
-  tables.value.push(newTable)
-  selectedTable.value = newTable // 默认选中刚加的
-  draw()
-  ElMessage.success('成功放入一张新圆桌，请将其拖拽到合适位置')
 }
 
-// 5. 鼠标点下：碰撞检测，看看点中了哪张桌子
-const onCanvasMouseDown = (e: MouseEvent) => {
-  const canvas = seatCanvas.value
-  if (!canvas) return
-  const rect = canvas.getBoundingClientRect()
-  // 计算出在 Canvas 内部的真实坐标
-  const clientX = e.clientX - rect.left
-  const clientY = e.clientY - rect.top
-
-  // 逆序查找，优先点选最上层的桌子
-  let found: TableItem | null = null
-  for (let i = tables.value.length - 1; i >= 0; i--) {
-    const t = tables.value[i]
-    if (!t) continue
-    // 计算点到圆心的毕达哥拉斯距离
-    const dist = Math.sqrt((clientX - t.x) ** 2 + (clientY - t.y) ** 2)
-    if (dist <= TABLE_RADIUS) {
-      found = t
-      break
-    }
+const getRectStyle = (el: VenueElement) => {
+  const left = (el.posX / layout.canvasWidth) * 100
+  const top = (el.posY / layout.canvasHeight) * 100
+  const width = (el.width / layout.canvasWidth) * 100
+  const height = (el.height / layout.canvasHeight) * 100
+  return {
+    left: `${left}%`,
+    top: `${top}%`,
+    width: `${width}%`,
+    height: `${height}%`
   }
+}
 
-  if (found) {
-    selectedTable.value = found
-    isDragging = true
-    dragOffsetX = clientX - found.x
-    dragOffsetY = clientY - found.y
+// ============================================
+// 拖拽逻辑
+// ============================================
+let dragging = false
+let dragType: 'table' | 'element' | null = null
+let dragItem: AdminTableLayout | VenueElement | null = null
+let dragStartClientX = 0
+let dragStartClientY = 0
+let dragStartPosX = 0
+let dragStartPosY = 0
+
+const startDrag = (e: MouseEvent, type: 'table' | 'element', item: AdminTableLayout | VenueElement) => {
+  selectItem(type, item.id)
+  dragging = true
+  dragType = type
+  dragItem = item
+  dragStartClientX = e.clientX
+  dragStartClientY = e.clientY
+  dragStartPosX = type === 'table' ? (item as AdminTableLayout).posX || 0 : (item as VenueElement).posX
+  dragStartPosY = type === 'table' ? (item as AdminTableLayout).posY || 0 : (item as VenueElement).posY
+  window.addEventListener('mousemove', onDragMove)
+  window.addEventListener('mouseup', onDragEnd)
+}
+
+const onDragMove = (e: MouseEvent) => {
+  if (!dragging || !dragItem || !canvasContainerRef.value) return
+  
+  // 获取画布容器的实际渲染尺寸
+  const rect = canvasContainerRef.value.getBoundingClientRect()
+  
+  // 计算缩放比例：画布逻辑尺寸 / 实际渲染尺寸
+  const scaleX = layout.canvasWidth / rect.width
+  const scaleY = layout.canvasHeight / rect.height
+  
+  const deltaX = (e.clientX - dragStartClientX) * scaleX
+  const deltaY = (e.clientY - dragStartClientY) * scaleY
+  
+  const newX = Math.round(dragStartPosX + deltaX)
+  const newY = Math.round(dragStartPosY + deltaY)
+  
+  if (dragType === 'table') {
+    ;(dragItem as AdminTableLayout).posX = newX
+    ;(dragItem as AdminTableLayout).posY = newY
   } else {
-    selectedTable.value = null // 点在空白处，清空选中
+    ;(dragItem as VenueElement).posX = newX
+    ;(dragItem as VenueElement).posY = newY
   }
-  draw()
 }
 
-// 6. 鼠标移动：如果是拖拽状态，实时同步刷新坐标
-const onCanvasMouseMove = (e: MouseEvent) => {
-  if (!isDragging || !selectedTable.value) return
-  const canvas = seatCanvas.value
-  if (!canvas) return
-  const rect = canvas.getBoundingClientRect()
-  const clientX = e.clientX - rect.left
-  const clientY = e.clientY - rect.top
-
-  // 边界限定限制，不移出画布
-  let targetX = clientX - dragOffsetX
-  let targetY = clientY - dragOffsetY
-  if (targetX < TABLE_RADIUS) targetX = TABLE_RADIUS
-  if (targetX > canvas.width - TABLE_RADIUS) targetX = canvas.width - TABLE_RADIUS
-  if (targetY < TABLE_RADIUS) targetY = TABLE_RADIUS
-  if (targetY > canvas.height - TABLE_RADIUS) targetY = canvas.height - TABLE_RADIUS
-
-  selectedTable.value.x = Math.round(targetX)
-  selectedTable.value.y = Math.round(targetY)
-  draw()
-}
-
-// 7. 释放鼠标
-const onCanvasMouseUp = () => {
-  isDragging = false
-}
-
-// 8. 删除选中的桌子
-const deleteSelectedTable = () => {
-  if (!selectedTable.value) return
-  tables.value = tables.value.filter(t => t !== selectedTable.value)
-  selectedTable.value = null
-  draw()
-  ElMessage.warning('桌位已从当前画布移除')
-}
-
-// 9. 保存大布局发给后端
-const handleSaveLayout = async () => {
-  saveLoading.value = true
+const onDragEnd = async () => {
+  if (!dragging || !dragItem) {
+    dragging = false
+    return
+  }
+  const type = dragType
+  const item = dragItem
+  dragging = false
+  dragType = null
+  dragItem = null
+  window.removeEventListener('mousemove', onDragMove)
+  window.removeEventListener('mouseup', onDragEnd)
+  
   try {
-    await saveSeatLayout(slug.value, {
-      layoutWidth: canvasWidth.value,
-      layoutHeight: canvasHeight.value,
-      tables: tables.value
-    })
-    ElMessage.success('🎉 恭喜！全场桌位排布及物理坐标已完美保存！')
-  } catch (err) {
-    // 自动被拦截器解析
+    if (type === 'table') {
+      const t = item as AdminTableLayout
+      await saveTable({ id: t.id, eventId, tableNo: t.tableNo, seatCount: t.seatCount, remark: t.remark || undefined, posX: t.posX ?? undefined, posY: t.posY ?? undefined, rotation: t.rotation })
+    } else {
+      const el = item as VenueElement
+      await saveVenueElement({ id: el.id, eventId, type: el.type, label: el.label, posX: el.posX, posY: el.posY, width: el.width, height: el.height, rotation: el.rotation })
+    }
+  } catch (err: any) {
+    ElMessage.error(err?.message || '坐标保存失败')
+    loadLayout()
+  }
+}
+
+onBeforeUnmount(() => {
+  window.removeEventListener('mousemove', onDragMove)
+  window.removeEventListener('mouseup', onDragEnd)
+  window.removeEventListener('resize', handleResize)
+})
+
+// ============================================
+// 业务逻辑
+// ============================================
+const tableDialogVisible = ref(false)
+const newTableForm = reactive({ tableNo: '', seatCount: 10, remark: '' })
+
+const submitNewTable = async () => {
+  if (!newTableForm.tableNo.trim()) {
+    ElMessage.warning('请填写桌号')
+    return
+  }
+  saving.value = true
+  try {
+    await saveTable({ eventId, tableNo: newTableForm.tableNo.trim(), seatCount: newTableForm.seatCount, remark: newTableForm.remark || undefined, posX: 150, posY: 150, rotation: 0 })
+    ElMessage.success('桌位创建成功')
+    tableDialogVisible.value = false
+    newTableForm.tableNo = ''
+    newTableForm.seatCount = 10
+    newTableForm.remark = ''
+    await loadLayout()
+  } catch (err: any) {
+    ElMessage.error(err?.message || '创建失败')
   } finally {
-    saveLoading.value = false
+    saving.value = false
+  }
+}
+
+const saveSelectedTable = async () => {
+  if (!selectedTable.value) return
+  saving.value = true
+  try {
+    const t = selectedTable.value
+    await saveTable({ id: t.id, eventId, tableNo: t.tableNo, seatCount: t.seatCount, remark: t.remark || undefined, posX: t.posX ?? undefined, posY: t.posY ?? undefined, rotation: t.rotation })
+    ElMessage.success('桌位信息已保存')
+    await loadLayout()
+  } catch (err: any) {
+    ElMessage.error(err?.message || '保存失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+const handleDeleteTable = async () => {
+  if (!selectedTable.value) return
+  const tableId = selectedTable.value.id
+  try {
+    await deleteTable(tableId, false)
+    ElMessage.success('桌位已删除')
+    clearSelection()
+    await loadLayout()
+  } catch (err: any) {
+    try {
+      await ElMessageBox.confirm(
+        `${err?.message || '该桌还有来宾已经入座'}，是否强制删除？`,
+        '强制删除确认',
+        { confirmButtonText: '强制删除', cancelButtonText: '取消', type: 'warning' }
+      )
+      await deleteTable(tableId, true)
+      ElMessage.warning('已强制删除')
+      clearSelection()
+      await loadLayout()
+    } catch {}
+  }
+}
+
+const quickAddElement = async (type: string, label: string, width: number, height: number) => {
+  try {
+    await saveVenueElement({ eventId, type, label, posX: 200, posY: 200, width, height, rotation: 0 })
+    ElMessage.success(`已添加：${label}`)
+    await loadLayout()
+  } catch (err: any) {
+    ElMessage.error(err?.message || '添加失败')
+  }
+}
+
+const saveSelectedElement = async () => {
+  if (!selectedElement.value) return
+  saving.value = true
+  try {
+    const el = selectedElement.value
+    await saveVenueElement({ id: el.id, eventId, type: el.type, label: el.label, posX: el.posX, posY: el.posY, width: el.width, height: el.height, rotation: el.rotation })
+    ElMessage.success('已保存')
+  } catch (err: any) {
+    ElMessage.error(err?.message || '保存失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+const handleDeleteElement = async () => {
+  if (!selectedElement.value) return
+  try {
+    await deleteVenueElement(selectedElement.value.id)
+    ElMessage.success('已删除')
+    clearSelection()
+    await loadLayout()
+  } catch (err: any) {
+    ElMessage.error(err?.message || '删除失败')
   }
 }
 
 onMounted(() => {
-  loadLayoutData()
+  loadLayout()
+  // 初始化尺寸计算
+  nextTick(() => {
+    // 延迟一点时间确保 DOM 完全渲染
+    setTimeout(() => {
+      updateCanvasSize()
+    }, 100)
+    window.addEventListener('resize', handleResize)
+  })
 })
 </script>
 
 <style scoped>
-.seat-layout-container { display: flex; flex-direction: column; height: 100vh; background-color: #f7f9fa; box-sizing: border-box; }
-.layout-header { display: flex; justify-content: space-between; align-items: center; background: #fff; padding: 12px 24px; border-bottom: 1px solid #e8e8e8; }
-.header-title code { background: #fff0f6; color: #ff4d4f; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-weight: bold; }
+.seat-layout-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #f5f7f9;
+}
 
-.workspace { display: flex; flex: 1; overflow: hidden; }
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 24px;
+  background: white;
+  border-bottom: 1px solid #e8e8e8;
+  flex-shrink: 0;
+}
 
-/* 左侧工具栏 */
-.toolbar { width: 220px; background: #fff; border-right: 1px solid #e8e8e8; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
-.toolbar h4 { margin: 0 0 10px 0; color: #333; border-left: 4px solid #ff4d4f; padding-left: 8px; }
-.tool-btn { width: 100%; margin-left: 0 !important; margin-bottom: 8px; font-weight: bold; }
-.canvas-tips { margin-top: auto; background: #fff7e6; border: 1px solid #ffd591; padding: 12px; border-radius: 8px; }
-.canvas-tips h5 { margin: 0 0 6px 0; color: #d46b08; }
-.canvas-tips ul { margin: 0; padding-left: 16px; font-size: 12px; color: #666; line-height: 1.6; }
+.page-header h2 {
+  margin: 0;
+  font-size: 17px;
+  color: #1f1f1f;
+}
 
-/* 中间主画布 */
-.canvas-area { flex: 1; padding: 30px; display: flex; justify-content: center; align-items: center; overflow: auto; background: #eef1f2; }
-canvas { background: #ffffff; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border-radius: 8px; cursor: crosshair; }
+.header-hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: #999;
+}
 
-/* 右侧属性栏 */
-.properties-panel { width: 280px; background: #fff; border-left: 1px solid #e8e8e8; padding: 20px; box-sizing: border-box; }
-.properties-panel h4 { margin: 0 0 20px 0; color: #333; border-left: 4px solid #1890ff; padding-left: 8px; }
-.no-selected { padding-top: 60px; }
+.workspace {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.toolbar {
+  width: 200px;
+  background: white;
+  border-right: 1px solid #e8e8e8;
+  padding: 20px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.tool-section {
+  margin-bottom: 24px;
+}
+
+.tool-title {
+  font-size: 13px;
+  color: #999;
+  margin-bottom: 10px;
+  font-weight: 600;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 6px;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot.gold { background: #cca662; }
+.dot.red { background: #ff4d4f; }
+.dot.blue { background: #1890ff; }
+
+/* 
+  核心修复：画布容器 
+  1. flex: 1 占据剩余空间
+  2. min-width: 0 防止 flex 子项溢出导致宽度计算错误
+  3. display: flex + justify-content/align-items: center 让画布居中
+*/
+.canvas-wrapper {
+  flex: 1;
+  min-width: 0; /* 关键修复：允许 flex 子项收缩到内容宽度以下 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: #eef0f2;
+  overflow: auto;
+  position: relative;
+}
+
+/* 
+  核心修复：画布本体 
+  1. width: 100% 确保占满 .canvas-wrapper 的可用空间
+  2. max-width: 1000px 限制最大宽度
+  3. JS 动态绑定 height
+*/
+.canvas-container {
+  width: 100%;
+  max-width: 1000px; /* 限制最大宽度 */
+  min-height: 400px; /* 兜底最小高度 */
+  background: #1e1e22;
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+  position: relative;
+  /* 调试用：如果还是看不到，取消下面这行的注释看看边界在哪里 */
+  /* border: 2px solid red; */
+}
+
+.canvas-inner {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.venue-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.svg-el {
+  fill: #2c3e50;
+  stroke: #3d4f61;
+  stroke-width: 1.5;
+}
+
+.svg-el-stage { fill: #611f1f; stroke: #ff4d4f; }
+.svg-el-screen { fill: #2c3e50; stroke: #3498db; }
+.svg-el-entrance, .svg-el-exit { fill: #2e4031; stroke: #27ae60; }
+.svg-el-selected { stroke: #1890ff; stroke-width: 3; }
+
+.svg-el-text {
+  fill: #e8e8e8;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.svg-table-circle {
+  fill: #fcf5ed;
+  stroke: #cca662;
+  stroke-width: 2;
+  transition: stroke 0.15s, fill 0.15s;
+}
+
+.svg-table-full { stroke: #ff4d4f; }
+.svg-table-selected { stroke: #1890ff; stroke-width: 4; fill: #e6f7ff; }
+
+.svg-table-text {
+  fill: #5c4033;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.svg-table-sub {
+  fill: #8a7365;
+  font-size: 11px;
+}
+
+.hotspot-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none; /* 让鼠标事件穿透到具体的 hotspot 元素 */
+}
+
+.hotspot {
+  position: absolute;
+  cursor: move;
+  pointer-events: auto; /* 恢复热点区域的鼠标事件 */
+}
+
+.hotspot-circle:hover {
+  background: rgba(24, 144, 255, 0.1);
+  border-radius: 50%;
+}
+
+.hotspot-rect:hover {
+  background: rgba(24, 144, 255, 0.08);
+  outline: 1px dashed rgba(24, 144, 255, 0.4);
+}
+
+.seat-tooltip-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #333;
+}
+
+.seat-tooltip-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.seat-chip {
+  font-size: 11px;
+  text-align: center;
+  padding: 4px 2px;
+  border-radius: 4px;
+  line-height: 1.3;
+}
+
+.seat-chip.free { background: #f6ffed; color: #52c41a; }
+.seat-chip.occupied { background: #fff1f0; color: #f5222d; }
+
+.seat-chip-name {
+  display: block;
+  font-size: 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.props-panel {
+  width: 280px;
+  background: white;
+  border-left: 1px solid #e8e8e8;
+  padding: 20px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.panel-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: #333;
+}
+
+.panel-actions { margin-top: 8px; }
+.form-tip { font-size: 12px; color: #999; margin-top: 4px; }
 </style>

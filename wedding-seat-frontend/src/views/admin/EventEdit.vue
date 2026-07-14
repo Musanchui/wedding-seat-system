@@ -1,154 +1,173 @@
 <template>
-  <div class="event-edit-page">
-    <el-page-header title="返回控制台" @back="router.push('/admin/dashboard')">
-      <template #content>
-        <span class="font-600 mr-3"> 📝 编排婚礼详细档案 </span>
-      </template>
-    </el-page-header>
+  <div class="event-edit-page" v-loading="pageLoading">
+    <div class="page-header">
+      <el-button :icon="ArrowLeft" text @click="router.push('/admin/dashboard')">返回控制台</el-button>
+      <h2>编辑婚礼信息</h2>
+      <el-tag :type="form.status === 1 ? 'success' : 'info'">{{ form.status === 1 ? '已发布' : '筹备中' }}</el-tag>
+    </div>
 
-    <el-card class="edit-card" v-loading="loading">
-      <el-form :model="editForm" label-position="left" label-width="120px" size="large">
-        <h3 class="section-title">💍 新人基础明细</h3>
-        <el-form-item label="新郎姓名">
-          <el-input v-model="editForm.groomName" placeholder="请输入新郎姓名" />
-        </el-form-item>
-        <el-form-item label="新娘姓名">
-          <el-input v-model="editForm.brideName" placeholder="请输入新娘姓名" />
-        </el-form-item>
-        <el-form-item label="访问短标识 slug">
-          <el-input v-model="editForm.slug" placeholder="例如: zhang-li-0815" />
-          <div class="alert-tip">⚠️ 警告：如果该链接已印在请柬上发出去，修改此项会导致来宾端旧链接彻底失效，请谨慎修改！</div>
-        </el-form-item>
+    <div class="edit-body">
+      <el-form :model="form" label-position="top" label-width="120px">
+        <div class="form-section">
+          <div class="section-title">新人信息</div>
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="新郎姓名">
+                <el-input v-model="form.groomName" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="新娘姓名">
+                <el-input v-model="form.brideName" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </div>
 
-        <el-divider />
-        <h3 class="section-title">📍 宴会时间与地点</h3>
-        <el-form-item label="喜宴举行时间">
-          <el-date-picker
-            v-model="editForm.eventTime"
-            type="datetime"
-            placeholder="请选择喜宴开始时间"
-            value-format="YYYY-MM-DDTHH:mm:ss"
-            style="width: 100%;"
-          />
-        </el-form-item>
-        <el-form-item label="喜宴举办地点">
-          <el-input v-model="editForm.location" placeholder="例如：汉开喜来登大酒店 5 楼百合厅" />
-        </el-form-item>
+        <div class="form-section">
+          <div class="section-title">婚礼安排</div>
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="婚礼时间">
+                <el-date-picker
+                  v-model="form.eventTime"
+                  type="datetime"
+                  placeholder="选择日期时间"
+                  style="width: 100%"
+                  value-format="YYYY-MM-DDTHH:mm:ss"
+                />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="宴席地点">
+                <el-input v-model="form.location" placeholder="例如：XX大酒店3楼宴会厅" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-form-item label="欢迎寄语">
+            <el-input v-model="form.greetingMessage" type="textarea" :rows="3" placeholder="欢迎来宾的一段话" />
+          </el-form-item>
+        </div>
 
-        <el-divider />
-        <h3 class="section-title">🎵 情感氛围与来宾欢迎页</h3>
-        <el-form-item label="迎宾致辞文案">
-          <el-input 
-            v-model="editForm.greetingMessage" 
-            type="textarea" 
-            :rows="3" 
-            placeholder="例如：执子之手，与子偕老。欢迎各位客友亲临见证我们的幸福时刻..." 
-          />
-        </el-form-item>
-        <el-form-item label="背景音乐URL">
-          <el-input v-model="editForm.musicUrl" placeholder="例如：/uploads/music/wedding-march.mp3" />
-        </el-form-item>
+        <div class="form-section">
+          <div class="section-title">素材</div>
+          <el-form-item label="背景音乐 URL">
+            <el-input v-model="form.musicUrl" placeholder="/uploads/music/xxx.mp3" />
+            <div class="form-tip">素材上传功能还在开发中，目前需要先把文件传到服务器上，再把访问路径填在这里</div>
+          </el-form-item>
+        </div>
 
-        <el-divider />
-        <h3 class="section-title">🚦 状态公开控制</h3>
-        <el-form-item label="是否对外公开">
-          <el-radio-group v-model="editForm.status">
-            <el-radio :value="0" border>🔒 筹备中（仅管理员可见，来宾端拦截）</el-radio>
-            <el-radio :value="1" border>🎉 已对外发布（来宾可通过短链接对号入座）</el-radio>
-          </el-radio-group>
-        </el-form-item>
-
-        <el-form-item style="margin-top: 40px;">
-          <el-button type="primary" size="large" color="#ff4d4f" :loading="submitLoading" @click="submitUpdate">
-            保存修改并应用
-          </el-button>
-          <el-button size="large" @click="router.push('/admin/dashboard')">取消</el-button>
-        </el-form-item>
+        <div class="form-section">
+          <div class="section-title">访问设置</div>
+          <el-form-item label="访问标识 slug">
+            <el-input v-model="form.slug" />
+            <div class="form-tip">这是来宾端链接的一部分，如果已经分发出去链接，修改会导致旧链接失效</div>
+          </el-form-item>
+          <el-form-item label="发布状态">
+            <el-switch
+              v-model="isPublished"
+              active-text="已发布（来宾端可访问）"
+              inactive-text="筹备中（来宾端不可访问）"
+            />
+          </el-form-item>
+        </div>
       </el-form>
-    </el-card>
+
+      <div class="action-bar">
+        <el-button type="primary" color="#ff4d4f" size="large" :loading="saving" @click="handleSave">
+          保存修改
+        </el-button>
+        <el-button size="large" @click="router.push(`/admin/event/seats/${eventId}`)">
+          去配置桌位大地图
+        </el-button>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getEventDetail, updateEvent } from '@/api/adminEvent'
 import { ElMessage } from 'element-plus'
+import { ArrowLeft } from '@element-plus/icons-vue'
+import { getEventDetail, updateEvent } from '@/api/adminEvent'
 
 const route = useRoute()
 const router = useRouter()
 const eventId = Number(route.params.id)
 
-const loading = ref(false)
-const submitLoading = ref(false)
+const pageLoading = ref(false)
+const saving = ref(false)
 
-const editForm = reactive({
+const form = reactive({
   groomName: '',
   brideName: '',
-  slug: '',
-  eventTime: '',
+  eventTime: '' as string | null,
   location: '',
   greetingMessage: '',
   musicUrl: '',
+  slug: '',
   status: 0
 })
 
-// 加载原有的婚礼单场详情
+const isPublished = computed({
+  get: () => form.status === 1,
+  set: (val: boolean) => { form.status = val ? 1 : 0 }
+})
+
 const loadDetail = async () => {
-  loading.value = true
+  pageLoading.value = true
   try {
     const res = await getEventDetail(eventId)
-    const d = res.data
-    editForm.groomName = d.groomName || ''
-    editForm.brideName = d.brideName || ''
-    editForm.slug = d.slug || ''
-    editForm.eventTime = d.eventTime || ''
-    editForm.location = d.location || ''
-    editForm.greetingMessage = d.greetingMessage || ''
-    editForm.musicUrl = d.musicUrl || ''
-    editForm.status = d.status
-  } catch (err) {
-    // 跨权 403 或者是数据不存在已被拦截器处理
-    router.push('/admin/dashboard')
+    form.groomName = res.data.groomName || ''
+    form.brideName = res.data.brideName || ''
+    form.eventTime = res.data.eventTime
+    form.location = res.data.location || ''
+    form.greetingMessage = res.data.greetingMessage || ''
+    form.musicUrl = res.data.musicUrl || ''
+    form.slug = res.data.slug
+    form.status = res.data.status
+  } catch (err: any) {
+    ElMessage.error(err?.message || '加载失败')
   } finally {
-    loading.value = false
+    pageLoading.value = false
+  }
+}
+
+const handleSave = async () => {
+  saving.value = true
+  try {
+    await updateEvent(eventId, {
+      groomName: form.groomName,
+      brideName: form.brideName,
+      eventTime: form.eventTime || undefined,
+      location: form.location,
+      greetingMessage: form.greetingMessage,
+      musicUrl: form.musicUrl,
+      slug: form.slug,
+      status: form.status
+    })
+    ElMessage.success('保存成功')
+  } catch (err: any) {
+    ElMessage.error(err?.message || '保存失败')
+  } finally {
+    saving.value = false
   }
 }
 
 onMounted(() => {
   loadDetail()
 })
-
-// 提交局部修改
-const submitUpdate = async () => {
-  submitLoading.value = true
-  try {
-    // 整理出非空要修改的局部对象
-    const patchData = {
-      groomName: editForm.groomName || undefined,
-      brideName: editForm.brideName || undefined,
-      slug: editForm.slug.trim() || undefined,
-      eventTime: editForm.eventTime || undefined,
-      location: editForm.location || undefined,
-      greetingMessage: editForm.greetingMessage || undefined,
-      musicUrl: editForm.musicUrl || undefined,
-      status: editForm.status
-    }
-
-    await updateEvent(eventId, patchData)
-    ElMessage.success('🎉 婚礼档案及状态已成功同步更新！')
-    router.push('/admin/dashboard')
-  } catch (err) {
-    // 拦截器自动弹出报错
-  } finally {
-    submitLoading.value = false
-  }
-}
 </script>
 
 <style scoped>
-.event-edit-page { padding: 24px; max-width: 800px; margin: 0 auto; }
-.edit-card { margin-top: 24px; padding: 12px; border-radius: 12px; }
-.section-title { color: #8c1111; font-size: 16px; margin-bottom: 20px; font-weight: bold; }
-.alert-tip { font-size: 12px; color: #e6a23c; margin-top: 4px; line-height: 1.4; }
+.event-edit-page { min-height: 100vh; background: #f5f7f9; }
+.page-header { display: flex; align-items: center; gap: 16px; padding: 12px 24px; background: white; border-bottom: 1px solid #e8e8e8; }
+.page-header h2 { margin: 0; font-size: 17px; flex: 1; }
+
+.edit-body { max-width: 720px; margin: 0 auto; padding: 32px 24px 80px; }
+.form-section { background: white; border-radius: 12px; padding: 24px; margin-bottom: 20px; }
+.section-title { font-size: 15px; font-weight: 600; color: #333; margin-bottom: 20px; border-left: 3px solid #ff4d4f; padding-left: 10px; }
+.form-tip { font-size: 12px; color: #999; margin-top: 4px; }
+.action-bar { display: flex; gap: 12px; }
 </style>

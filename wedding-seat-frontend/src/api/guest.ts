@@ -134,3 +134,11 @@ export const releaseSeat = (data: ReleaseSeatParam): Promise<ApiResponse<boolean
 /** 查询某个来宾当前已选定的所有座位(0-3个) */
 export const getMySeats = (guestId: number): Promise<ApiResponse<SeatSummary[]>> =>
   guestHttp.get('/guest/my-seats', { params: { guestId } })
+
+export interface AutoAssignParam {
+  guestId: number
+  seatCount: number
+}
+/** 不想自己选座的来宾用这个：告诉系统要几个座位(含自己，最多3个)，系统自动分配 */
+export const autoAssignSeats = (data: AutoAssignParam): Promise<ApiResponse<SeatSummary[]>> =>
+  guestHttp.post('/guest/seat/auto-assign', data)

@@ -46,6 +46,7 @@
             <div class="card-actions">
               <el-button size="small" type="primary" plain @click="handleEditEvent(event.id)">编辑详情</el-button>
               <el-button size="small" type="success" plain @click="handleManageSeats(event.id)">桌位大地图</el-button>
+              <el-button size="small" plain @click="handleGuestList(event.id)">宾客名单</el-button>
               <el-button
                 size="small"
                 :type="event.status === 1 ? 'warning' : 'danger'"
@@ -163,6 +164,10 @@ const handleEditEvent = (id: number) => {
 // 都是按数字eventId查询的，跟来宾端用slug访问是两套体系，不要混用
 const handleManageSeats = (id: number) => {
   router.push(`/admin/event/seats/${id}`)
+}
+
+const handleGuestList = (id: number) => {
+  router.push(`/admin/event/guests/${id}`)
 }
 
 const handleLogout = () => {

@@ -22,6 +22,53 @@
       </van-popup>
     </div>
 
+    <!-- 登记成功后：先问要不要自己选座位 -->
+    <div v-else-if="flowStage === 'choose'" class="choose-container">
+      <div class="choose-card">
+        <div class="choose-title">您好，{{ guestName }} 👋</div>
+        <div class="choose-desc">请问您想自己挑选座位，还是让我们帮您安排？</div>
+
+        <van-button round block type="primary" color="#ff4d4f" style="margin-bottom: 14px" @click="handleChooseSelf">
+          我要自己选座位
+        </van-button>
+        <van-button round block plain type="primary" color="#ff4d4f" @click="flowStage = 'autoAssign'">
+          帮我自动分配座位
+        </van-button>
+      </div>
+    </div>
+
+    <!-- 自动分配：问几个人 -->
+    <div v-else-if="flowStage === 'autoAssign'" class="choose-container">
+      <div class="choose-card">
+        <div class="choose-title">帮您自动安排座位</div>
+        <div class="choose-desc">请问一共几位（含您本人，最多3位）？系统会自动为您安排在同一桌相邻的座位。</div>
+
+        <van-stepper v-model="autoAssignCount" min="1" max="3" integer input-width="60px" button-size="32px" style="margin: 20px 0" />
+
+        <van-button round block type="primary" color="#ff4d4f" :loading="loading" @click="handleAutoAssign">
+          确认，帮我安排
+        </van-button>
+        <van-button round block plain style="margin-top: 12px" @click="flowStage = 'choose'">返回上一步</van-button>
+      </div>
+    </div>
+
+    <!-- 自动分配完成：直接展示结果，不需要进地图 -->
+    <div v-else-if="flowStage === 'done'" class="choose-container">
+      <div class="choose-card">
+        <van-icon name="checked" color="#52c41a" size="48" style="display: block; margin: 0 auto 12px" />
+        <div class="choose-title">安排成功！</div>
+        <div class="choose-desc">已经为您安排好以下座位：</div>
+        <div class="done-seats">
+          <div v-for="seat in mySeats" :key="seat.seatId" class="done-seat-item">
+            {{ seat.tableNo }}号桌 · {{ seat.seatNo }}号座位
+          </div>
+        </div>
+        <van-button round block plain style="margin-top: 16px" @click="flowStage = 'map'; loadVenueLayoutData()">
+          查看现场大地图
+        </van-button>
+      </div>
+    </div>
+
     <!-- 选座主界面 -->
     <div v-else class="map-container">
       <div class="welcome-user">
@@ -128,6 +175,7 @@ import {
   releaseSeat,
   getMySeats,
   getVenueLayout,
+  autoAssignSeats,
   type VenueLayoutData,
   type Seat,
   type SeatSummary
@@ -145,6 +193,11 @@ const mySeats = ref<SeatSummary[]>([])
 
 const guestId = ref<number | null>(null)
 const guestName = ref('')
+
+// 流程状态：choose=问要不要自己选，autoAssign=填人数，done=自动分配完成展示结果，map=选座地图
+const flowStage = ref<'choose' | 'autoAssign' | 'done' | 'map'>('choose')
+const autoAssignCount = ref(1)
+let pendingRecommend: { id: number; tableNo: string; remark: string | null } | null = null
 
 const recommendTableId = ref<number>(0)
 const currentTableId = ref<number>(0)
@@ -202,7 +255,7 @@ const onSubmitRegister = async () => {
       await loadVenueLayoutData()
 
       if (res.data.selectedSeats && res.data.selectedSeats.length > 0) {
-        // 已经选过至少1个座位：直接同步已选列表，并定位到第一个已选座位所在的桌子
+        // 已经选过至少1个座位的老来宾：不用再问了，直接进地图展示已选状态
         mySeats.value = res.data.selectedSeats
         const firstSeat = res.data.selectedSeats[0]
         const table = layoutData.value.tables.find((t) => t.id === firstSeat.tableId)
@@ -211,19 +264,50 @@ const onSubmitRegister = async () => {
         currentTableRemark.value = table?.remark || ''
         recommendTableId.value = firstSeat.tableId
         await loadSeatsData(firstSeat.tableId)
+        flowStage.value = 'map'
       } else if (res.data.recommendedTable) {
-        const recommend = res.data.recommendedTable
-        recommendTableId.value = recommend.id
-        currentTableId.value = recommend.id
-        currentTableNo.value = recommend.tableNo
-        currentTableRemark.value = recommend.remark || ''
-        await loadSeatsData(recommend.id)
+        // 新来宾/还没选座：先问"自己选"还是"帮我分配"，暂存推荐桌信息，等用户选了"自己选"再真正加载座位格子
+        pendingRecommend = res.data.recommendedTable
+        flowStage.value = 'choose'
       }
     } else {
       showToast(res.message)
     }
   } catch (err: any) {
     showToast(err?.message || '登记失败，请稍后重试')
+  } finally {
+    loading.value = false
+  }
+}
+
+const handleChooseSelf = async () => {
+  if (!pendingRecommend) return
+  loading.value = true
+  try {
+    recommendTableId.value = pendingRecommend.id
+    currentTableId.value = pendingRecommend.id
+    currentTableNo.value = pendingRecommend.tableNo
+    currentTableRemark.value = pendingRecommend.remark || ''
+    await loadSeatsData(pendingRecommend.id)
+    flowStage.value = 'map'
+  } finally {
+    loading.value = false
+  }
+}
+
+const handleAutoAssign = async () => {
+  if (!guestId.value) return
+  loading.value = true
+  try {
+    const res = await autoAssignSeats({ guestId: guestId.value, seatCount: autoAssignCount.value })
+    if (res.code === 200) {
+      mySeats.value = res.data
+      flowStage.value = 'done'
+    } else {
+      showToast(res.message || '分配失败')
+    }
+  } catch (err: any) {
+    showToast(err?.message || '分配失败，可能是没有一桌能一次容纳这么多人，建议改为自己选座（可分开坐）')
   } finally {
     loading.value = false
   }
@@ -351,12 +435,21 @@ onMounted(() => {
         recommendTableId.value = first.tableId
         await loadSeatsData(first.tableId)
       }
+      // 恢复会话直接进地图，不用再问一遍"自己选还是自动分配"
+      flowStage.value = 'map'
     })()
   }
 })
 </script>
 
 <style scoped>
+.choose-container { min-height: calc(100vh - 46px); display: flex; align-items: center; justify-content: center; padding: 24px; }
+.choose-card { width: 100%; max-width: 340px; background: white; border-radius: 16px; padding: 32px 24px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); text-align: center; }
+.choose-title { font-size: 18px; font-weight: bold; color: #333; margin-bottom: 10px; }
+.choose-desc { font-size: 13px; color: #888; margin-bottom: 24px; line-height: 1.6; }
+.done-seats { background: #f6ffed; border-radius: 10px; padding: 12px; margin-top: 8px; }
+.done-seat-item { font-size: 14px; color: #52c41a; padding: 6px 0; font-weight: 600; }
+
 .seat-select-page { min-height: 100vh; background: #f7f8fa; overflow-y: scroll; }
 
 .form-container { padding: 20px 0; }

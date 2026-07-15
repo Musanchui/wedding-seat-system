@@ -40,6 +40,12 @@ const router = createRouter({
       component: () => import('@/views/admin/SeatLayout.vue'),
       meta: { requiresAuth: true }
     },
+    {
+      path: '/admin/event/guests/:id',
+      name: 'AdminGuestList',
+      component: () => import('@/views/admin/GuestList.vue'),
+      meta: { requiresAuth: true }
+    },
 
     // ================== 来宾端 (H5) ==================
     {

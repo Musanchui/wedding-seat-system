@@ -2,6 +2,7 @@ package com.spruce.wedding.weddingseatbackend.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.spruce.wedding.weddingseatbackend.common.exception.BusinessException;
+import com.spruce.wedding.weddingseatbackend.dto.AutoAssignSeatDTO;
 import com.spruce.wedding.weddingseatbackend.dto.EventInfoVO;
 import com.spruce.wedding.weddingseatbackend.dto.GuestRegisterDTO;
 import com.spruce.wedding.weddingseatbackend.dto.GuestRegisterVO;
@@ -320,4 +321,80 @@ public class GuestServiceImpl implements GuestService {
                 })
                 .toList();
     }
+
+    /**
+     * 不想自己选座的来宾：告诉系统要几个座位，系统在同一桌里自动挑座位号最小的几个空位分配。
+     * 整个方法包在一个事务里：只要中途有一个座位抢不到（极小概率的并发冲突），
+     * 就整体回滚，来宾看到的要么是"全部分配成功"，要么是"一个都没变"，不会出现分配到一半的情况。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public List<SeatSummaryVO> autoAssignSeats(AutoAssignSeatDTO dto) {
+        Guest guest = guestMapper.selectById(dto.getGuestId());
+        if (guest == null) {
+            throw new BusinessException("来宾信息不存在，请重新登记");
+        }
+
+        long currentCount = seatMapper.selectCount(
+                Wrappers.<Seat>lambdaQuery().eq(Seat::getGuestId, dto.getGuestId())
+        );
+        if (currentCount + dto.getSeatCount() > 3) {
+            throw new BusinessException("加上您已经选定的座位，总数不能超过3个，最多还能再分配 " + (3 - currentCount) + " 个");
+        }
+
+        TableInfo table = findTableWithCapacity(guest.getEventId(), guest.getCategory(), dto.getSeatCount());
+        if (table == null) {
+            throw new BusinessException("暂时没有一桌能一次容纳" + dto.getSeatCount() + "个连续空位，建议减少人数，或改为手动选座（可以分开坐在不同桌）");
+        }
+
+        List<Seat> candidates = seatMapper.selectList(
+                Wrappers.<Seat>lambdaQuery()
+                        .eq(Seat::getTableId, table.getId())
+                        .eq(Seat::getStatus, 0)
+                        .orderByAsc(Seat::getSeatNo)
+                        .last("LIMIT " + dto.getSeatCount())
+        );
+        if (candidates.size() < dto.getSeatCount()) {
+            // 极端情况：刚才查可用数时够，但这一瞬间被别人抢走了几个，兜底报错，让来宾重试
+            throw new BusinessException.SeatConflictException("座位刚被别人抢占了一部分，请重新尝试分配");
+        }
+
+        List<SeatSummaryVO> result = new java.util.ArrayList<>();
+        for (Seat seat : candidates) {
+            int affected = seatMapper.lockSeat(seat.getId(), dto.getGuestId(), seat.getVersion());
+            if (affected == 0) {
+                throw new BusinessException.SeatConflictException("座位刚被别人抢占，请重新尝试分配");
+            }
+            result.add(new SeatSummaryVO(seat.getId(), table.getId(), table.getTableNo(), seat.getSeatNo()));
+        }
+        return result;
+    }
+
+    /**
+     * 找一张能一次性容纳 requiredCount 个空位的桌子：优先按category匹配remark，
+     * 匹配不到就在所有桌子里找空位最多的（只要空位数 >= requiredCount 就行）
+     */
+    private TableInfo findTableWithCapacity(Long eventId, String category, int requiredCount) {
+        List<TableInfo> tables = tableInfoMapper.selectList(
+                Wrappers.<TableInfo>lambdaQuery()
+                        .eq(TableInfo::getEventId, eventId)
+                        .eq(TableInfo::getStatus, 1)
+        );
+
+        if (category != null && !category.isBlank()) {
+            Optional<TableInfo> matched = tables.stream()
+                    .filter(t -> t.getRemark() != null && t.getRemark().contains(category))
+                    .filter(t -> calcAvailableSeats(t) >= requiredCount)
+                    .max(Comparator.comparingInt(this::calcAvailableSeats));
+            if (matched.isPresent()) {
+                return matched.get();
+            }
+        }
+
+        return tables.stream()
+                .filter(t -> calcAvailableSeats(t) >= requiredCount)
+                .max(Comparator.comparingInt(this::calcAvailableSeats))
+                .orElse(null);
+    }
+
 }

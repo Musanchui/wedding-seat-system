@@ -1,6 +1,7 @@
 package com.spruce.wedding.weddingseatbackend.controller;
 
 import com.spruce.wedding.weddingseatbackend.common.result.Result;
+import com.spruce.wedding.weddingseatbackend.dto.AutoAssignSeatDTO;
 import com.spruce.wedding.weddingseatbackend.dto.EventInfoVO;
 import com.spruce.wedding.weddingseatbackend.dto.GuestRegisterDTO;
 import com.spruce.wedding.weddingseatbackend.dto.GuestRegisterVO;
@@ -122,5 +123,14 @@ public class GuestController {
     @GetMapping("/my-seats")
     public Result<List<SeatSummaryVO>> getMySeats(@RequestParam Long guestId) {
         return Result.success(guestService.getMySeats(guestId));
+    }
+
+    /**
+     * POST /api/guest/seat/auto-assign
+     * 不想自己选座的来宾用这个：告诉系统要几个座位(含自己，最多3个)，系统自动分配。
+     */
+    @PostMapping("/seat/auto-assign")
+    public Result<List<SeatSummaryVO>> autoAssignSeats(@Valid @RequestBody AutoAssignSeatDTO dto) {
+        return Result.success(guestService.autoAssignSeats(dto));
     }
 }

@@ -16,6 +16,11 @@ RUN mvn clean package -DskipTests -B
 # ---------- 阶段二：运行 ----------
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
+
+# 重要：Alpine镜像默认不带任何字体，Java用Graphics2D画中文文字(比如邀请函二维码上的新人姓名)
+# 会渲染成方块/乱码。这里装上fontconfig和文泉驿中文字体，解决这个问题。
+RUN apk add --no-cache fontconfig wqy-zenhei
+
 # 从构建阶段把打好的jar包拷过来（通配符匹配，不用关心具体版本号文件名）
 COPY --from=build /build/target/*.jar app.jar
 

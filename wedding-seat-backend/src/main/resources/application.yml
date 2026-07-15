@@ -83,6 +83,9 @@ wedding:
     base-path: ${UPLOAD_PATH:D:/wedding-uploads/}
     # 对外访问的URL前缀，需要和 WebMvcConfigurer 里的静态资源映射对应
     url-prefix: /uploads/
+  # 来宾端(前端H5)对外访问的域名/地址，生成邀请函二维码时用这个拼出完整链接
+  # 本地开发默认前端跑在5173端口；部署到服务器后改成真实域名，比如 https://your-domain.com
+  frontend-base-url: ${FRONTEND_BASE_URL:http://localhost:5173}
 
 logging:
   level:

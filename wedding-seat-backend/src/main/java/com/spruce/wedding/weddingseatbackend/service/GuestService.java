@@ -1,5 +1,6 @@
 package com.spruce.wedding.weddingseatbackend.service;
 
+import com.spruce.wedding.weddingseatbackend.dto.AutoAssignSeatDTO;
 import com.spruce.wedding.weddingseatbackend.dto.EventInfoVO;
 import com.spruce.wedding.weddingseatbackend.dto.GuestRegisterDTO;
 import com.spruce.wedding.weddingseatbackend.dto.GuestRegisterVO;
@@ -45,4 +46,10 @@ public interface GuestService {
      * 查询某个来宾当前已经选定的所有座位（0-3个）
      */
     List<SeatSummaryVO> getMySeats(Long guestId);
+
+    /**
+     * 不想自己选座的来宾用这个：告诉系统要几个座位（含自己，最多3个），
+     * 系统自动在同一桌找连续的空位分配，不需要来宾自己点选。
+     */
+    List<SeatSummaryVO> autoAssignSeats(AutoAssignSeatDTO dto);
 }

@@ -1,8 +1,10 @@
 package com.spruce.wedding.weddingseatbackend.config;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 @Configuration
@@ -10,6 +12,12 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class WebMvcConfig implements WebMvcConfigurer {
 
     private final JwtInterceptor jwtInterceptor;
+
+    @Value("${wedding.upload.base-path}")
+    private String uploadBasePath;
+
+    @Value("${wedding.upload.url-prefix}")
+    private String uploadUrlPrefix;
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
@@ -20,7 +28,20 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 .excludePathPatterns("/admin/login", "/admin/register");
     }
 
-    // 注意：素材上传功能做好之后，这里还需要补一个 addResourceHandlers() 方法，
-    // 把 wedding.upload.base-path 映射成 wedding.upload.url-prefix 对应的静态资源访问路径，
-    // 现在先不加，等做上传功能那一步再回来补。
+    /**
+     * 把 wedding.upload.base-path 这个磁盘目录，映射成 wedding.upload.url-prefix 对应的URL路径。
+     * 比如本地磁盘 D:/wedding-uploads/photo/1/xxx.jpg 这个文件，
+     * 上传接口存进数据库的url是 /uploads/photo/1/xxx.jpg，
+     * 来宾/浏览器访问 http://localhost:8080/api/uploads/photo/1/xxx.jpg 就能直接看到这张图。
+     *
+     * 注意：file:路径最后必须带斜杠，不然Spring会把它当成文件名前缀而不是目录，导致映射失败。
+     */
+    @Override
+    public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        String location = uploadBasePath.endsWith("/") || uploadBasePath.endsWith("\\")
+                ? uploadBasePath
+                : uploadBasePath + "/";
+        registry.addResourceHandler(uploadUrlPrefix + "**")
+                .addResourceLocations("file:" + location);
+    }
 }

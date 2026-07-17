@@ -50,11 +50,44 @@
         </div>
 
         <div class="form-section">
-          <div class="section-title">素材</div>
-          <el-form-item label="背景音乐 URL">
-            <el-input v-model="form.musicUrl" placeholder="/uploads/music/xxx.mp3" />
-            <div class="form-tip">素材上传功能还在开发中，目前需要先把文件传到服务器上，再把访问路径填在这里</div>
-          </el-form-item>
+          <div class="section-title">背景音乐</div>
+          <div class="music-row">
+            <audio v-if="form.musicUrl" :src="form.musicUrl" controls style="height: 36px" />
+            <span v-else class="form-tip" style="margin: 0">还没有上传背景音乐</span>
+            <el-upload
+              :show-file-list="false"
+              :before-upload="handleBeforeMusicUpload"
+              :http-request="handleMusicUpload"
+              accept=".mp3,.wav,.m4a"
+            >
+              <el-button :loading="musicUploading">{{ form.musicUrl ? '重新上传' : '上传音乐' }}</el-button>
+            </el-upload>
+          </div>
+          <div class="form-tip">支持 mp3/wav/m4a，最大50MB</div>
+        </div>
+
+        <div class="form-section">
+          <div class="section-title">照片墙（{{ photoList.length }}张）</div>
+          <div class="photo-grid">
+            <div v-for="(photo, index) in photoList" :key="photo.id" class="photo-item">
+              <img :src="photo.url" />
+              <div class="photo-actions">
+                <el-icon v-if="index > 0" @click="movePhoto(index, -1)"><ArrowLeft /></el-icon>
+                <el-icon @click="handleDeletePhoto(photo.id)"><Delete /></el-icon>
+                <el-icon v-if="index < photoList.length - 1" @click="movePhoto(index, 1)"><ArrowRight /></el-icon>
+              </div>
+            </div>
+            <el-upload
+              :show-file-list="false"
+              :before-upload="handleBeforePhotoUpload"
+              :http-request="handlePhotoUpload"
+              accept=".jpg,.jpeg,.png,.webp"
+              class="photo-upload-box"
+            >
+              <el-icon style="font-size: 24px; color: #999"><Plus /></el-icon>
+            </el-upload>
+          </div>
+          <div class="form-tip">支持 jpg/jpeg/png/webp，最大50MB；用左右箭头调整轮播顺序</div>
         </div>
 
         <div class="form-section">
@@ -89,8 +122,9 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, Delete, Plus } from '@element-plus/icons-vue'
 import { getEventDetail, updateEvent } from '@/api/adminEvent'
+import { uploadPhoto, uploadMusic, listPhotos, deletePhoto, reorderPhotos, type PhotoItem } from '@/api/adminUpload'
 
 const route = useRoute()
 const router = useRouter()
@@ -98,6 +132,8 @@ const eventId = Number(route.params.id)
 
 const pageLoading = ref(false)
 const saving = ref(false)
+const musicUploading = ref(false)
+const photoList = ref<PhotoItem[]>([])
 
 const form = reactive({
   groomName: '',
@@ -134,6 +170,83 @@ const loadDetail = async () => {
   }
 }
 
+const loadPhotos = async () => {
+  try {
+    const res = await listPhotos(eventId)
+    photoList.value = res.data
+  } catch (err) {
+    // 静默失败即可，不影响页面其他部分
+  }
+}
+
+const handleBeforeMusicUpload = (file: File) => {
+  if (file.size > 50 * 1024 * 1024) {
+    ElMessage.error('文件不能超过50MB')
+    return false
+  }
+  return true
+}
+
+const handleMusicUpload = async (options: any) => {
+  musicUploading.value = true
+  try {
+    const res = await uploadMusic(eventId, options.file)
+    form.musicUrl = res.data
+    ElMessage.success('背景音乐上传成功')
+  } catch (err: any) {
+    ElMessage.error(err?.message || '上传失败')
+  } finally {
+    musicUploading.value = false
+  }
+}
+
+const handleBeforePhotoUpload = (file: File) => {
+  if (file.size > 50 * 1024 * 1024) {
+    ElMessage.error('文件不能超过50MB')
+    return false
+  }
+  return true
+}
+
+const handlePhotoUpload = async (options: any) => {
+  try {
+    await uploadPhoto(eventId, options.file)
+    ElMessage.success('照片上传成功')
+    await loadPhotos()
+  } catch (err: any) {
+    ElMessage.error(err?.message || '上传失败')
+  }
+}
+
+const handleDeletePhoto = async (photoId: number) => {
+  try {
+    await deletePhoto(photoId)
+    ElMessage.success('已删除')
+    await loadPhotos()
+  } catch (err: any) {
+    ElMessage.error(err?.message || '删除失败')
+  }
+}
+
+// 交换相邻两张照片的顺序号，交换后立即保存到后端
+const movePhoto = async (index: number, direction: 1 | -1) => {
+  const targetIndex = index + direction
+  if (targetIndex < 0 || targetIndex >= photoList.value.length) return
+
+  const list = photoList.value
+  ;[list[index], list[targetIndex]] = [list[targetIndex], list[index]]
+
+  try {
+    await reorderPhotos(
+      eventId,
+      list.map((p, i) => ({ id: p.id, sortOrder: i }))
+    )
+  } catch (err: any) {
+    ElMessage.error(err?.message || '排序保存失败')
+    await loadPhotos()
+  }
+}
+
 const handleSave = async () => {
   saving.value = true
   try {
@@ -157,6 +270,7 @@ const handleSave = async () => {
 
 onMounted(() => {
   loadDetail()
+  loadPhotos()
 })
 </script>
 
@@ -164,6 +278,24 @@ onMounted(() => {
 .event-edit-page { min-height: 100vh; background: #f5f7f9; }
 .page-header { display: flex; align-items: center; gap: 16px; padding: 12px 24px; background: white; border-bottom: 1px solid #e8e8e8; }
 .page-header h2 { margin: 0; font-size: 17px; flex: 1; }
+
+.music-row { display: flex; align-items: center; gap: 16px; }
+
+.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, 110px); gap: 12px; }
+.photo-item { position: relative; width: 110px; height: 110px; border-radius: 8px; overflow: hidden; }
+.photo-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-actions {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  background: rgba(0,0,0,0.55); display: flex; justify-content: space-around;
+  padding: 6px 0; opacity: 0; transition: opacity 0.15s;
+}
+.photo-item:hover .photo-actions { opacity: 1; }
+.photo-actions .el-icon { color: white; cursor: pointer; font-size: 16px; }
+.photo-upload-box {
+  width: 110px; height: 110px; border: 1px dashed #d9d9d9; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.photo-upload-box:hover { border-color: #ff4d4f; }
 
 .edit-body { max-width: 720px; margin: 0 auto; padding: 32px 24px 80px; }
 .form-section { background: white; border-radius: 12px; padding: 24px; margin-bottom: 20px; }

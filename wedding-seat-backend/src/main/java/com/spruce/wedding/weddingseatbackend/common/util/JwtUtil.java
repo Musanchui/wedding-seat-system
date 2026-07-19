@@ -4,6 +4,8 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
@@ -12,26 +14,37 @@ import java.util.Date;
 /**
  * JWT工具类：管理员登录成功后签发token，后续请求靠这个token校验身份。
  *
- * 注意：SECRET_KEY 现在是硬编码在代码里的，这是为了让项目先跑起来、方便本地开发调试。
- * 部署到生产服务器之前，务必把这个密钥改成从环境变量读取（参考application.yml里其他敏感配置
- * 用 ${JWT_SECRET:默认值} 的写法），不要把生产环境用的密钥提交到Git仓库里。
+ * 密钥从 application.yml 的 jwt.secret 读取（支持环境变量 JWT_SECRET 覆盖），
+ * 本地开发用yml里的默认值即可；部署到生产服务器时，必须通过环境变量传入一个
+ * 只有你自己知道的随机字符串，不能用默认值，否则任何拿到源码的人都能伪造登录token。
  */
 @Component
 public class JwtUtil {
 
-    /**
-     * 签名密钥，长度必须满足HS256算法要求（至少256位，也就是至少32个字符）。
-     * 这里随便生成了一个足够长的固定字符串，本地开发够用。
-     */
-    private static final String SECRET_STRING = "wedding-seat-system-jwt-secret-key-please-change-in-production-2026";
+    @Value("${jwt.secret}")
+    private String secretString;
 
-    private static final SecretKey SECRET_KEY = Keys.hmacShaKeyFor(SECRET_STRING.getBytes());
+    private SecretKey secretKey;
 
     /**
      * token有效期：7天（单位毫秒）。婚礼筹备周期可能持续几周，管理员不希望频繁重新登录，
      * 这个时长按实际使用场景来定，你也可以改短一点配合"记住我"之类的功能，现在先简单处理。
      */
     private static final long EXPIRATION_MILLIS = 7 * 24 * 60 * 60 * 1000L;
+
+    /**
+     * Spring注入完@Value之后自动执行一次，把字符串密钥转换成HS256算法需要的SecretKey对象。
+     * 顺便校验长度：HS256要求密钥至少256位(32个字符)，长度不够直接在启动时报错，
+     * 而不是等到真正登录时才出问题，暴露问题的时机越早越好。
+     */
+    @PostConstruct
+    public void init() {
+        if (secretString == null || secretString.getBytes().length < 32) {
+            throw new IllegalStateException(
+                    "JWT密钥长度不够(至少需要32个字符/256位)，请检查环境变量 JWT_SECRET 是否已正确设置");
+        }
+        this.secretKey = Keys.hmacShaKeyFor(secretString.getBytes());
+    }
 
     /**
      * 生成token，把adminId编码进去（存在Claims的subject里）
@@ -44,7 +57,7 @@ public class JwtUtil {
                 .subject(String.valueOf(adminId))
                 .issuedAt(now)
                 .expiration(expiration)
-                .signWith(SECRET_KEY)
+                .signWith(secretKey)
                 .compact();
     }
 
@@ -55,7 +68,7 @@ public class JwtUtil {
      */
     public Long parseAdminId(String token) {
         Claims claims = Jwts.parser()
-                .verifyWith(SECRET_KEY)
+                .verifyWith(secretKey)
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();

@@ -1,7 +1,5 @@
 <template>
   <div class="guest-home">
-    <audio v-if="eventData.musicUrl" ref="audioPlayer" :src="eventData.musicUrl" loop></audio>
-
     <van-swipe class="banner-swipe" :autoplay="3500" indicator-color="#ff4d4f">
       <van-swipe-item v-for="photo in photoList" :key="photo.id">
         <div class="swipe-card">
@@ -13,7 +11,7 @@
     <div class="welcome-card">
       <h1 class="couple-names" @click="toggleMusic">
         {{ eventData.groomName }} ❤️ {{ eventData.brideName }}
-        <span class="music-note" :class="{ 'is-playing': isPlaying }" v-if="eventData.musicUrl">
+        <span class="music-note" :class="{ 'is-playing': isMusicPlaying }" v-if="hasMusic">
           <van-icon name="music-o" />
         </span>
       </h1>
@@ -43,13 +41,11 @@ import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { showToast } from 'vant'
 import { getWeddingEvent, getWeddingPhotos } from '@/api/guest'
+import { playMusic, toggleMusic, isMusicPlaying, hasMusic } from '@/utils/musicPlayer'
 
 const router = useRouter()
 const route = useRoute()
 const slug = route.params.slug as string
-
-const audioPlayer = ref<HTMLAudioElement | null>(null)
-const isPlaying = ref(false)
 
 const eventData = ref({
   id: 0,
@@ -75,8 +71,11 @@ onMounted(async () => {
     const eventRes = await getWeddingEvent(slug)
     if (eventRes.code === 200) {
       eventData.value = eventRes.data
-      // 尝试播放音乐
-      setTimeout(() => { toggleMusic() }, 1000)
+      if (eventData.value.musicUrl) {
+        // 音乐播放器是全局单例，这里只是"告诉"它要播哪首、开始播；
+        // 之后不管跳转到选座页还是别的来宾端页面，音乐都不会中断
+        setTimeout(() => { playMusic(eventData.value.musicUrl) }, 500)
+      }
     } else {
       showToast(eventRes.message)
     }
@@ -90,20 +89,6 @@ onMounted(async () => {
     showToast('服务器异常，请检查网络')
   }
 })
-
-const toggleMusic = () => {
-  if (!audioPlayer.value) return
-  if (isPlaying.value) {
-    audioPlayer.value.pause()
-    isPlaying.value = false
-  } else {
-    audioPlayer.value.play().then(() => {
-      isPlaying.value = true
-    }).catch(() => {
-      console.log('浏览器策略阻挡，需要用户产生交互才可播放音频')
-    })
-  }
-}
 
 const copyLocation = () => {
   if (!eventData.value.location) return

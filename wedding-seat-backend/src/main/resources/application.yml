@@ -16,7 +16,7 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3307}/${DB_NAME:wedding_seat}?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:root123456}
+    password: ${DB_PASSWORD:你的本地数据库密码}
 
     druid:
       # 连接池大小：一次性小型活动项目，不需要很大
@@ -81,11 +81,19 @@ wedding:
     # 本地开发默认存在项目同级目录下，Docker部署时会通过环境变量指向容器内挂载的路径（比如 /app/uploads）
     # 注意：容器内的路径一定要挂载数据卷(volume)，否则容器重启/重建后上传的文件会丢失
     base-path: ${UPLOAD_PATH:D:/wedding-uploads/}
-    # 对外访问的URL前缀，需要和 WebMvcConfigurer 里的静态资源映射对应
+    # 这个url-prefix只给WebMvcConfig注册静态资源映射时用(相对于DispatcherServlet，不需要带context-path)
     url-prefix: /uploads/
+    # 这个才是真正存进数据库、返回给前端的URL前缀，必须带上context-path(/api)，
+    # 否则前端<img>/<audio>标签直接用这个字符串当src，请求会打到前端自己的域名，而不是走到后端
+    public-url-prefix: ${PUBLIC_UPLOAD_PREFIX:/api/uploads/}
   # 来宾端(前端H5)对外访问的域名/地址，生成邀请函二维码时用这个拼出完整链接
   # 本地开发默认前端跑在5173端口；部署到服务器后改成真实域名，比如 https://your-domain.com
   frontend-base-url: ${FRONTEND_BASE_URL:http://localhost:5173}
+
+# JWT密钥：本地开发用这个默认值即可；部署到生产服务器时必须通过环境变量JWT_SECRET
+# 传入一个随机生成的字符串(至少32位)，绝对不能用这个默认值，否则任何拿到源码的人都能伪造登录token
+jwt:
+  secret: ${JWT_SECRET:wedding-seat-system-jwt-secret-key-please-change-in-production-2026}
 
 logging:
   level:

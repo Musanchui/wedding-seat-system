@@ -33,8 +33,19 @@
       </div>
 
       <!-- 中间画布 -->
-      <div class="canvas-wrapper" ref="canvasWrapperRef" :style="{ '--canvas-w': layout.canvasWidth, '--canvas-h': layout.canvasHeight }">
-        <div class="canvas-inner" @click.self="clearSelection">
+      <div class="canvas-wrapper" ref="canvasWrapperRef">
+        <!--
+          canvas-inner 的宽高不再靠CSS百分比/aspect-ratio计算，
+          而是靠JS(ResizeObserver)量出canvas-wrapper的实际渲染像素宽度，
+          再按画布比例算出对应像素高度，直接绑定成inline样式的具体像素值。
+          这样无论浏览器缩放比例、字体大小设置怎么变，都不会出现"缩放某个比例才显示正常"的问题，
+          因为JS拿到的永远是当前这一刻的真实渲染尺寸，不存在CSS计算时机不对的问题。
+        -->
+        <div
+          class="canvas-inner"
+          :style="{ width: renderWidth + 'px', height: renderHeight + 'px' }"
+          @click.self="clearSelection"
+        >
           <svg :viewBox="`0 0 ${layout.canvasWidth} ${layout.canvasHeight}`" class="venue-svg" style="pointer-events: none;">
             <g v-for="el in layout.elements" :key="'el-' + el.id" :transform="`translate(${el.posX}, ${el.posY}) rotate(${el.rotation})`">
               <rect :width="el.width" :height="el.height" rx="8" :class="['svg-el', 'svg-el-' + el.type, { 'svg-el-selected': isSelected('element', el.id) }]" />
@@ -161,7 +172,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, Plus } from '@element-plus/icons-vue'
@@ -186,6 +197,55 @@ const saving = ref(false)
 const canvasWrapperRef = ref<HTMLElement | null>(null)
 
 const layout = reactive<AdminVenueLayout>({ canvasWidth: 1000, canvasHeight: 800, elements: [], tables: [] })
+
+// ============================================
+// 画布实际渲染像素尺寸：由ResizeObserver量出wrapper的真实宽度算出，
+// 不依赖任何CSS百分比/aspect-ratio技巧，彻底避开flex布局+缩放比例的兼容性问题
+// ============================================
+const renderWidth = ref(900)
+const renderHeight = ref(720)
+let resizeObserver: ResizeObserver | null = null
+
+const recalcCanvasSize = () => {
+  const wrapperEl = canvasWrapperRef.value
+  if (!wrapperEl) return
+  // wrapper上有padding: 24px，实际可用宽度要减掉左右padding，并且最大不超过900(跟原来的max-width保持一致)
+  const availableWidth = Math.min(wrapperEl.clientWidth - 48, 900)
+  if (availableWidth <= 0) return
+  renderWidth.value = availableWidth
+  renderHeight.value = Math.round((availableWidth * layout.canvasHeight) / layout.canvasWidth)
+}
+
+onMounted(() => {
+  loadLayout()
+
+  if (canvasWrapperRef.value) {
+    resizeObserver = new ResizeObserver(() => {
+      recalcCanvasSize()
+    })
+    resizeObserver.observe(canvasWrapperRef.value)
+  }
+  // 也监听浏览器缩放/窗口变化触发的resize事件，双重保险
+  // （大多数浏览器缩放页面也会触发ResizeObserver，这里加window.resize是为了覆盖极少数不触发的情况）
+  window.addEventListener('resize', recalcCanvasSize)
+})
+
+onBeforeUnmount(() => {
+  if (resizeObserver && canvasWrapperRef.value) {
+    resizeObserver.unobserve(canvasWrapperRef.value)
+  }
+  window.removeEventListener('resize', recalcCanvasSize)
+  window.removeEventListener('mousemove', onDragMove)
+  window.removeEventListener('mouseup', onDragEnd)
+})
+
+// 画布尺寸(canvasWidth/canvasHeight)是从后端加载的，加载完之后要重新算一次渲染像素尺寸
+watch(
+  () => [layout.canvasWidth, layout.canvasHeight],
+  () => {
+    nextTick(() => recalcCanvasSize())
+  }
+)
 
 const selectedType = ref<'table' | 'element' | null>(null)
 const selectedId = ref<number | null>(null)
@@ -219,6 +279,8 @@ const loadLayout = async () => {
     layout.canvasHeight = res.data.canvasHeight
     layout.elements = res.data.elements
     layout.tables = res.data.tables
+    await nextTick()
+    recalcCanvasSize()
   } catch (err: any) {
     ElMessage.error(err?.message || '加载场地大地图失败')
   } finally {
@@ -227,7 +289,7 @@ const loadLayout = async () => {
 }
 
 // ============================================
-// 热区定位样式：用百分比定位，天然适配画布响应式缩放，不需要手动换算像素
+// 热区定位样式：用百分比定位，跟随canvas-inner的实际像素尺寸缩放，天然适配任何渲染尺寸
 // ============================================
 const circleHotspotStyle = (table: AdminTableLayout) => ({
   left: `${((table.posX || 0) / layout.canvasWidth) * 100}%`,
@@ -266,9 +328,10 @@ const startDrag = (e: MouseEvent, type: 'table' | 'element', item: AdminTableLay
 
 const onDragMove = (e: MouseEvent) => {
   if (!dragging || !dragItem || !canvasWrapperRef.value) return
-  const rect = canvasWrapperRef.value.getBoundingClientRect()
-  const scaleX = layout.canvasWidth / rect.width
-  const scaleY = layout.canvasHeight / rect.height
+  // 直接用renderWidth/renderHeight这两个JS量出来的真实像素尺寸做换算比例，
+  // 不再用getBoundingClientRect()现场量（那个在某些缩放比例下跟实际渲染像素有细微误差）
+  const scaleX = layout.canvasWidth / renderWidth.value
+  const scaleY = layout.canvasHeight / renderHeight.value
 
   const deltaX = (e.clientX - dragStartClientX) * scaleX
   const deltaY = (e.clientY - dragStartClientY) * scaleY
@@ -331,11 +394,6 @@ const onDragEnd = async () => {
     loadLayout()
   }
 }
-
-onBeforeUnmount(() => {
-  window.removeEventListener('mousemove', onDragMove)
-  window.removeEventListener('mouseup', onDragEnd)
-})
 
 // ============================================
 // 新增桌位
@@ -473,10 +531,6 @@ const handleDeleteElement = async () => {
     ElMessage.error(err?.message || '删除失败')
   }
 }
-
-onMounted(() => {
-  loadLayout()
-})
 </script>
 
 <style scoped>
@@ -496,20 +550,21 @@ onMounted(() => {
 .dot.red { background: #ff4d4f; }
 .dot.blue { background: #1890ff; }
 
-.canvas-wrapper { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; background: #eef0f2; overflow: auto; }
+.canvas-wrapper { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; background: #eef0f2; overflow: auto; box-sizing: border-box; }
+
+/*
+  canvas-inner 的宽高完全由JS通过inline style(:style绑定)以像素值直接指定，
+  这里CSS只负责视觉样式(背景色/圆角/阴影)，不再有任何影响尺寸计算的属性(不设width/height/aspect-ratio/padding)，
+  避免和父级flex布局的尺寸计算算法产生冲突。
+*/
 .canvas-inner {
   position: relative;
-  width: 100%;
-  max-width: 900px;
-  /* 用padding-top百分比撑高，比aspect-ratio兼容性更好，不依赖CSS变量在flex布局里的计算 */
-  height: 0;
-  padding-top: calc(var(--canvas-h) / var(--canvas-w) * 100%);
   background: #1e1e22;
   border-radius: 10px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
   overflow: hidden;
+  flex-shrink: 0;
 }
-.canvas-inner > * { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
 .venue-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
 
 .svg-el { fill: #2c3e50; stroke: #3d4f61; stroke-width: 1.5; }

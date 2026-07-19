@@ -9,7 +9,7 @@ import { useAdminStore } from '@/stores/admin'
  */
 const adminHttp = axios.create({
   baseURL: '/api',
-  timeout: 10000,
+  timeout: 120000,
   headers: { 'Content-Type': 'application/json' }
 })
 
